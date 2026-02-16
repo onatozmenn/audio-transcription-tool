@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Client-Side Audio Transcription Tool
 
-## Getting Started
+Privacy-first audio transcription built with Next.js, Web Workers, and `@xenova/transformers`.
+All processing runs in the browser (WASM + WebGPU/WebAssembly backend), so audio files are not uploaded to a server.
 
-First, run the development server:
+## Stack
+
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- Web Worker for off-main-thread inference
+- `@xenova/transformers` with `Xenova/whisper-base`
+
+## Local Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Production checks:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm build
+pnpm start
+```
 
-## Learn More
+## Push to GitHub
 
-To learn more about Next.js, take a look at the following resources:
+If this is a new repository:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+git init
+git add .
+git commit -m "feat: client-side audio transcription app"
+git branch -M main
+git remote add origin https://github.com/<your-username>/<your-repo>.git
+git push -u origin main
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+If the repository already exists remotely:
+
+```bash
+git add .
+git commit -m "feat: step 5 vercel build config and smart export"
+git push
+```
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Push your latest code to GitHub.
+2. Go to Vercel: `https://vercel.com/new`
+3. Import the GitHub repository.
+4. Keep default framework detection (`Next.js`).
+5. No environment variables are required for this app.
+6. Click **Deploy**.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+After deploy:
+
+- First transcription is slower because Whisper model files download and cache in the browser.
+- Later transcriptions are faster due browser cache.
+- `whisper-base` is more stable against hallucination/repetition but has a larger first download and slower inference than `whisper-tiny`.
+
+## Environment Variables
+
+No environment variables are required for this client-side application.
+
+## Troubleshooting
+
+- If deployment fails on WASM/module resolution, confirm `next.config.mjs` exists and includes:
+  - WASM asset rule (`test: /\.wasm$/`)
+  - `asyncWebAssembly` experiment
+  - SSR-safe aliases for `sharp` and `onnxruntime-node`
+- If transcription does not start:
+  - Use a modern Chromium/Firefox browser with Web Workers, WebAssembly, and Web Audio enabled.
+  - Keep the tab active during long lecture processing.
