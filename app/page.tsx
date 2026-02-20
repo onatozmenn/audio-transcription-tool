@@ -84,7 +84,6 @@ type WorkerResponse =
   | { type: "error"; error: string; requestId?: number };
 
 const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { value: "auto", label: "Auto detect" },
   { value: "english", label: "English" },
   { value: "turkish", label: "Turkish" },
   { value: "spanish", label: "Spanish" },
@@ -220,7 +219,7 @@ export default function Home() {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState<"auto" | WhisperLanguage>("auto");
+  const [selectedLanguage, setSelectedLanguage] = useState<"auto" | WhisperLanguage>("english");
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [fontMode, setFontMode] = useState<FontMode>("sans");
@@ -1029,7 +1028,7 @@ export default function Home() {
 
         <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
           <p className="text-xs text-neutral-500">
-            Powered by{" "}
+            Developed by{" "}
             <span className="font-medium text-neutral-300">Onat Özmen</span>
           </p>
           <a
