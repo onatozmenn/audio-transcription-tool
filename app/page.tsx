@@ -8,6 +8,7 @@ import {
   Copy,
   Download,
   FileJson,
+  Linkedin,
   LoaderCircle,
   ShieldCheck,
   Square,
@@ -1025,6 +1026,22 @@ export default function Home() {
             Leave this tab open while processing long lectures for the best result stability.
           </p>
         ) : null}
+
+        <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
+          <p className="text-xs text-neutral-500">
+            Powered by{" "}
+            <span className="font-medium text-neutral-300">Onat Özmen</span>
+          </p>
+          <a
+            href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-cyan-400/40 hover:bg-neutral-800 hover:text-cyan-200"
+          >
+            <Linkedin className="size-3.5" />
+            LinkedIn
+          </a>
+        </div>
       </section>
     </main>
   );
