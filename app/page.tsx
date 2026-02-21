@@ -1351,7 +1351,7 @@ export default function Home() {
                   ))}
                 </ul>
               </div>
-            ) : segments.length > 0 && viewMode === "plain" ? (
+            ) : output ? (
               <textarea
                 ref={outputTextareaRef}
                 readOnly
