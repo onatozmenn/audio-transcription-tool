@@ -3,15 +3,15 @@
 import { FileAudio, UploadCloud, XCircle } from "lucide-react";
 import { useRef, useState } from "react";
 
-export type AcceptedAudioExtension = "mp3" | "wav" | "m4a" | "mp4" | "ogg";
+export type AcceptedAudioExtension = "mp3" | "wav" | "m4a" | "mp4" | "ogg" | "flac" | "aac" | "webm" | "opus";
 
 export interface UploadDropzoneProps {
   onFileSelected?: (file: File) => void;
 }
 
-const ACCEPTED_AUDIO_EXTENSIONS: AcceptedAudioExtension[] = ["mp3", "wav", "m4a", "mp4", "ogg"];
+const ACCEPTED_AUDIO_EXTENSIONS: AcceptedAudioExtension[] = ["mp3", "wav", "m4a", "mp4", "ogg", "flac", "aac", "webm", "opus"];
 const ACCEPT_ATTRIBUTE =
-  ".mp3,.wav,.m4a,.mp4,.ogg,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,video/mp4,audio/ogg";
+  ".mp3,.wav,.m4a,.mp4,.ogg,.flac,.aac,.webm,.opus,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,video/mp4,audio/ogg,audio/flac,audio/aac,audio/webm,audio/opus";
 
 export function isAcceptedAudioFile(file: File): boolean {
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -38,7 +38,7 @@ export function UploadDropzone({ onFileSelected }: UploadDropzoneProps) {
 
     if (!isAcceptedAudioFile(file)) {
       setSelectedFile(null);
-      setError("Unsupported file type. Please upload .mp3, .wav, .m4a, .mp4, or .ogg.");
+      setError("Unsupported file type. Please upload .mp3, .wav, .m4a, .mp4, .ogg, .flac, .aac, .webm, or .opus.");
       return;
     }
 
@@ -121,7 +121,7 @@ export function UploadDropzone({ onFileSelected }: UploadDropzoneProps) {
           </p>
         </div>
 
-        <p className="text-xs text-neutral-500">Accepted formats: .mp3, .wav, .m4a, .mp4, .ogg</p>
+        <p className="text-xs text-neutral-500">Accepted formats: .mp3, .wav, .m4a, .mp4, .ogg, .flac, .aac, .webm, .opus</p>
       </div>
 
       {error ? (

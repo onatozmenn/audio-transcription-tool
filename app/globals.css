@@ -15,6 +15,20 @@
   100% { background-position: -200% 0; }
 }
 
+@keyframes shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  15%       { transform: translateX(-8px) rotate(-2.5deg); }
+  30%       { transform: translateX(8px) rotate(2.5deg); }
+  45%       { transform: translateX(-6px) rotate(-1.5deg); }
+  60%       { transform: translateX(6px) rotate(1.5deg); }
+  75%       { transform: translateX(-3px) rotate(0deg); }
+  90%       { transform: translateX(3px); }
+}
+
+.lang-shake {
+  animation: shake 0.45s ease-in-out;
+}
+
 html,
 body {
   min-height: 100%;

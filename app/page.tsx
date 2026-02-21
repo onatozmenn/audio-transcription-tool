@@ -6,10 +6,12 @@ import {
   ChevronDown,
   Clock3,
   Copy,
+  Cpu,
   Download,
   FileJson,
   Linkedin,
-  LoaderCircle,
+  Lock,
+  Monitor,
   ShieldCheck,
   Square,
   Type,
@@ -60,7 +62,7 @@ type TranscriptExportJson = {
   createdAt: string;
   fileName: string | null;
   model: "Xenova/whisper-small";
-  language: "auto" | WhisperLanguage;
+  language: "auto" | WhisperLanguage | null;
   text: string;
   segments: TranscriptSegment[];
 };
@@ -99,15 +101,6 @@ const LANGUAGE_OPTIONS: LanguageOption[] = [
   { value: "japanese", label: "Japanese", flag: "🇯🇵" },
   { value: "korean", label: "Korean", flag: "🇰🇷" },
 ];
-
-function statusLabel(status: TranscriptionStatus): string {
-  if (status === "idle") return "Ready";
-  if (status === "loading") return "Loading model";
-  if (status === "decoding") return "Decoding audio";
-  if (status === "transcribing") return "Transcribing";
-  if (status === "ready") return "Completed";
-  return "Error";
-}
 
 function clampProgress(value: number): number {
   return Math.max(0, Math.min(100, value));
@@ -222,13 +215,14 @@ export default function Home() {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState<"auto" | WhisperLanguage>("english");
+  const [selectedLanguage, setSelectedLanguage] = useState<"auto" | WhisperLanguage | null>(null);
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [fontMode, setFontMode] = useState<FontMode>("sans");
   const [isCancelling, setIsCancelling] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const [isLangShaking, setIsLangShaking] = useState(false);
   const [downloadedBytes, setDownloadedBytes] = useState<number | null>(null);
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"plain" | "timestamps">("timestamps");
@@ -237,6 +231,31 @@ export default function Home() {
   const [currentSlice, setCurrentSlice] = useState<number | null>(null);
   const [totalSlices, setTotalSlices] = useState<number | null>(null);
   const [warmUpElapsed, setWarmUpElapsed] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+  const [gpuSupported, setGpuSupported] = useState(true);
+  const [isAppInitializing, setIsAppInitializing] = useState(true);
+  const hasSeenLoadingRef = useRef(false);
+
+  useEffect(() => {
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+    setGpuSupported("gpu" in navigator);
+  }, []);
+
+  useEffect(() => {
+    if (status === "loading") {
+      hasSeenLoadingRef.current = true;
+    }
+    if (isAppInitializing && hasSeenLoadingRef.current && status !== "loading") {
+      setIsAppInitializing(false);
+    }
+  }, [status, isAppInitializing]);
+
+  // Safety fallback: if worker never sends "loading" (e.g. instant cache hit), clear skeleton after 3s
+  useEffect(() => {
+    if (!isAppInitializing) return;
+    const id = window.setTimeout(() => setIsAppInitializing(false), 3000);
+    return () => window.clearTimeout(id);
+  }, [isAppInitializing]);
 
   const clearProgressState = useCallback(() => {
     setProgress(0);
@@ -539,6 +558,8 @@ export default function Home() {
 
   const handleFileSelected = useCallback(
     async (file: File) => {
+      if (!selectedLanguage) return;
+
       if (status === "loading" || status === "transcribing" || status === "decoding") {
         cancelTranscription();
       }
@@ -572,7 +593,7 @@ export default function Home() {
           type: "transcribe",
           requestId,
           audio: audioData,
-          language: selectedLanguage,
+          language: selectedLanguage ?? "english",
         };
         worker.postMessage(request, [audioData.buffer]);
       } catch (decodeError) {
@@ -710,15 +731,6 @@ export default function Home() {
     );
   }, [timestampedExport, triggerDownload]);
 
-  const statusChipClass = useMemo(() => {
-    if (status === "error") return "border-red-500/50 bg-red-500/10 text-red-200";
-    if (status === "ready") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-200";
-    if (status === "transcribing") return "border-cyan-400/40 bg-cyan-400/10 text-cyan-100";
-    if (status === "decoding") return "border-blue-400/40 bg-blue-400/10 text-blue-100";
-    if (status === "loading") return "border-amber-400/40 bg-amber-400/10 text-amber-100";
-    return "border-neutral-600/70 bg-neutral-800/70 text-neutral-200";
-  }, [status]);
-
   const progressLabel = useMemo(() => {
     if (progressPhase === "download") {
       if (downloadedBytes !== null && totalBytes !== null && totalBytes > 0) {
@@ -844,51 +856,109 @@ export default function Home() {
           </p>
         </header>
 
-        <UploadDropzone onFileSelected={handleFileSelected} />
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <div
-            className={[
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
-              statusChipClass,
-            ].join(" ")}
-          >
-            {status === "loading" || status === "decoding" || status === "transcribing" ? (
-              <LoaderCircle className="size-3.5 animate-spin" />
-            ) : null}
-            <span>{statusLabel(status)}</span>
+        {/* Info panel */}
+        <div className="mb-8 flex flex-col divide-y divide-white/5 rounded-2xl border border-white/10 bg-neutral-900/40 sm:flex-row sm:divide-x sm:divide-y-0">
+          <div className="flex flex-1 flex-col p-5">
+            <div className="mb-3 flex items-center gap-2 text-neutral-300">
+              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M320-240q-33 0-56.5-23.5T240-320v-320q0-33 23.5-56.5T320-720h320q33 0 56.5 23.5T720-640v320q0 33-23.5 56.5T640-240H320Zm0-80h320v-320H320v320Zm-80 40v-80h-80v-80h80v-80h-80v-80h80v-80h-80v-80h80v-80h80v80h80v-80h80v80h80v-80h80v80h80v80h-80v80h80v80h-80v80h80v80h-80v80h-80v-80h-80v80h-80v-80h-80v80h-80Zm160-240h160v-160H400v160Zm0-80h160v-160H400v160Z"/></svg>
+              <h3 className="text-sm font-medium text-neutral-200">Runs in your browser</h3>
+            </div>
+            <p className="text-xs leading-relaxed text-neutral-400">
+              Powered by Whisper Small via WebGPU. No internet connection required after the initial model load.
+            </p>
           </div>
-          {activeDevice ? (
-            <span
-              className={[
-                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-                activeDevice === "webgpu"
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                  : "border-orange-500/40 bg-orange-500/10 text-orange-300",
-              ].join(" ")}
-            >
-              {activeDevice === "webgpu" ? "WebGPU" : "WASM (CPU)"}
-            </span>
-          ) : null}
-          <p className="text-xs text-neutral-400 sm:text-sm">
-            {activeFileName ? `File: ${activeFileName}` : "No file selected"}
-          </p>
+
+          <div className="flex flex-1 flex-col p-5">
+            <div className="mb-3 flex items-center gap-2 text-neutral-300">
+              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm240-120q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80ZM240-160v-400 400Z"/></svg>
+              <h3 className="text-sm font-medium text-neutral-200">Zero data leaves device</h3>
+            </div>
+            <p className="text-xs leading-relaxed text-neutral-400">
+              Your audio is never uploaded to any server. Everything is processed locally with no tracking or storage.
+            </p>
+          </div>
+
+          <div className="flex flex-1 flex-col p-5">
+            <div className={[
+              "mb-3 flex items-center gap-2",
+              isMobile || !gpuSupported ? "text-amber-400" : "text-neutral-300"
+            ].join(" ")}>
+              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M320-120v-80H160q-33 0-56.5-23.5T80-280v-480q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v480q0 33-23.5 56.5T800-200H640v80H320ZM160-280h640v-480H160v480Zm0 0v-480 480Z"/></svg>
+              <h3 className={[
+                "text-sm font-medium",
+                isMobile || !gpuSupported ? "text-amber-200" : "text-neutral-200"
+              ].join(" ")}>
+                {isMobile || !gpuSupported ? "Desktop recommended" : "Best on desktop"}
+              </h3>
+            </div>
+            <p className="text-xs leading-relaxed text-neutral-400">
+              {isMobile || !gpuSupported
+                ? "WebGPU is not supported here. Transcription will fall back to CPU and may be slow."
+                : "Use Chrome or Edge on a desktop PC for best performance. Keep this tab active."}
+            </p>
+          </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">
-            Language
-          </span>
-          <div ref={langMenuRef} className="relative">
+        {isAppInitializing ? (
+          /* ── Skeleton while model loads ─────────────────────────────── */
+          <div className="animate-pulse space-y-4">
+            {/* Step 1 skeleton */}
+            <div className="space-y-2">
+              <div className="h-3 w-40 rounded-full bg-neutral-700/60" />
+              <div className="h-9 w-52 rounded-lg bg-neutral-800/80" />
+            </div>
+            {/* Dropzone skeleton */}
+            <div className="space-y-2">
+              <div className="h-3 w-48 rounded-full bg-neutral-700/60" />
+              <div className="flex min-h-56 flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-neutral-700/60 bg-neutral-900/40 p-8">
+                <div className="size-12 rounded-full bg-neutral-800" />
+                <div className="space-y-2 text-center">
+                  <div className="mx-auto h-3.5 w-48 rounded-full bg-neutral-700/60" />
+                  <div className="mx-auto h-3 w-32 rounded-full bg-neutral-800/60" />
+                </div>
+                <div className="h-2.5 w-56 rounded-full bg-neutral-800/40" />
+              </div>
+            </div>
+            {/* Status row skeleton */}
+            <div className="flex items-center gap-3">
+              <div className="h-6 w-28 rounded-full bg-neutral-800/80" />
+              <div className="h-4 w-32 rounded-full bg-neutral-800/40" />
+            </div>
+          </div>
+        ) : (
+        <>
+        <div className="mb-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
+            Step 1 — Select the audio language
+          </p>
+          <div
+            ref={langMenuRef}
+            className={["relative inline-block", isLangShaking ? "lang-shake" : ""].join(" ")}
+            onAnimationEnd={() => setIsLangShaking(false)}
+          >
             <button
               type="button"
               onClick={() => setIsLangMenuOpen((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-200 outline-none transition-colors hover:border-neutral-600 focus:border-cyan-400/60"
+              className={[
+                "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors",
+                selectedLanguage
+                  ? "border-cyan-400/40 bg-cyan-400/5 text-neutral-200 hover:bg-cyan-400/10"
+                  : "border-dashed border-white/20 bg-neutral-900/60 text-neutral-400 hover:border-white/40 hover:text-neutral-200",
+              ].join(" ")}
             >
-              <span className="text-base leading-none" style={{ fontFamily: '"TwemojiFlags", sans-serif' }}>
-                {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.flag ?? ""}
-              </span>
-              {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.label ?? selectedLanguage}
+              {selectedLanguage ? (
+                <>
+                  <span className="text-base leading-none" style={{ fontFamily: '"TwemojiFlags", sans-serif' }}>
+                    {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.flag ?? ""}
+                  </span>
+                  {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.label}
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="m476-80 182-480h84L924-80h-84l-43-122H603L560-80h-84ZM160-200l-56-56 202-202q-35-35-63.5-80T190-640h84q20 39 40 68t48 58q33-33 68.5-92.5T484-720H40v-80h280v-80h80v80h280v80H564q-21 72-63 148t-83 116l96 98-30 82-97-99-202 195Zm468-72h144l-72-204-72 204Z"/></svg>
+                  Select audio language
+                </>
+              )}
               <ChevronDown
                 className={[
                   "size-3.5 transition-transform",
@@ -927,6 +997,33 @@ export default function Home() {
             ) : null}
           </div>
         </div>
+
+        {/* Step 2 — Upload */}
+        <div className="relative">
+          <div className={selectedLanguage ? "" : "pointer-events-none opacity-40"}>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
+              Step 2 — Upload your audio file
+            </p>
+            <UploadDropzone onFileSelected={handleFileSelected} />
+          </div>
+          {!selectedLanguage && (
+            <div
+              className="absolute inset-0 cursor-pointer"
+              onClick={() => {
+                setIsLangShaking(true);
+                setIsLangMenuOpen(true);
+              }}
+            />
+          )}
+        </div>
+
+        {activeFileName ? (
+          <p className="mt-4 text-xs text-neutral-400 sm:text-sm">
+            File: {activeFileName}
+          </p>
+        ) : null}
+
+
 
         {isCompiling ? (
           <div className="mt-3 space-y-2 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
@@ -1095,6 +1192,9 @@ export default function Home() {
             <span>{error}</span>
           </div>
         ) : null}
+
+        </>
+        )}
 
         <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/75">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2">
@@ -1285,9 +1385,13 @@ export default function Home() {
         </div>
 
         <div className="mt-4 rounded-lg border border-white/10 bg-neutral-950/70 px-3 py-2 text-xs text-neutral-400 sm:text-sm">
-          Supports <span className="font-medium text-neutral-300">.mp3, .wav, .m4a, .mp4, .ogg</span>.
+          Supports <span className="font-medium text-neutral-300">.mp3, .wav, .m4a, .mp4, .ogg, .flac, .aac, .webm, .opus</span>.
           Transcription runs in-browser with{" "}
           <span className="font-medium text-neutral-300">Whisper Small</span>.
+          <br />
+          <span className="mt-1 block text-amber-500/80">
+            ⚠️ Do not refresh the page during transcription, or your progress will be lost.
+          </span>
         </div>
 
         {busy ? (
@@ -1301,15 +1405,24 @@ export default function Home() {
             Developed by{" "}
             <span className="font-medium text-neutral-300">Onat Özmen</span>
           </p>
-          <a
-            href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-cyan-400/40 hover:bg-neutral-800 hover:text-cyan-200"
-          >
-            <Linkedin className="size-3.5" />
-            LinkedIn
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="/privacy"
+              className="text-xs text-neutral-500 transition-colors hover:text-neutral-300"
+            >
+              Privacy Policy
+            </a>
+            <span className="text-neutral-700">·</span>
+            <a
+              href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-cyan-400/40 hover:bg-neutral-800 hover:text-cyan-200"
+            >
+              <Linkedin className="size-3.5" />
+              LinkedIn
+            </a>
+          </div>
         </div>
       </section>
     </main>
