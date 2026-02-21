@@ -223,9 +223,10 @@ export default function Home() {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [isLangShaking, setIsLangShaking] = useState(false);
+  const [justCompleted, setJustCompleted] = useState(false);
   const [downloadedBytes, setDownloadedBytes] = useState<number | null>(null);
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<"plain" | "timestamps">("timestamps");
+  const [viewMode, setViewMode] = useState<"plain" | "timestamps">("plain");
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [activeDevice, setActiveDevice] = useState<"webgpu" | "wasm" | null>(null);
   const [currentSlice, setCurrentSlice] = useState<number | null>(null);
@@ -256,6 +257,18 @@ export default function Home() {
     const id = window.setTimeout(() => setIsAppInitializing(false), 3000);
     return () => window.clearTimeout(id);
   }, [isAppInitializing]);
+
+  // Flash "Transcription complete" badge only when transitioning transcribing → ready
+  const prevStatusRef = useRef<typeof status | null>(null);
+  useEffect(() => {
+    if (prevStatusRef.current === "transcribing" && status === "ready") {
+      setJustCompleted(true);
+      const id = window.setTimeout(() => setJustCompleted(false), 2800);
+      prevStatusRef.current = status;
+      return () => window.clearTimeout(id);
+    }
+    prevStatusRef.current = status;
+  }, [status]);
 
   const clearProgressState = useCallback(() => {
     setProgress(0);
@@ -577,7 +590,7 @@ export default function Home() {
       setActiveFileName(file.name);
       setOutput("");
       setSegments([]);
-      setViewMode("timestamps");
+      setViewMode("plain");
       setCopyState("idle");
       setCopyFeedback(null);
       setIsExportMenuOpen(false);
@@ -722,14 +735,14 @@ export default function Home() {
   );
 
   const handleDownloadTxt = useCallback(() => {
-    if (!timestampedExport.trim()) return;
+    if (!output.trim()) return;
 
     triggerDownload(
-      timestampedExport,
+      output.trim(),
       `transcription-${timestampForFilename(new Date())}.txt`,
       "text/plain;charset=utf-8",
     );
-  }, [timestampedExport, triggerDownload]);
+  }, [output, triggerDownload]);
 
   const progressLabel = useMemo(() => {
     if (progressPhase === "download") {
@@ -999,29 +1012,39 @@ export default function Home() {
         </div>
 
         {/* Step 2 — Upload */}
-        <div className="relative">
-          <div className={selectedLanguage ? "" : "pointer-events-none opacity-40"}>
+        {busy ? (
+          /* While processing: hide the full dropzone, show only the compact file row */
+          <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
               Step 2 — Upload your audio file
             </p>
-            <UploadDropzone onFileSelected={handleFileSelected} />
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-neutral-900/80 px-3.5 py-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M560-360v-240l80 80 56-56-160-160-160 160 56 56 80-80v240h48Zm-80 200q-83 0-141.5-58.5T280-360v-400h400v400q0 83-58.5 141.5T480-160Zm0-80q50 0 85-35t35-85v-320H360v320q0 50 35 85t85 35ZM200-80q-33 0-56.5-23.5T120-160v-520h80v520h520v80H200Zm280-440Z"/></svg>
+                <span className="truncate text-sm text-neutral-200">{activeFileName}</span>
+              </div>
+              <span className="shrink-0 text-xs text-neutral-500">Processing…</span>
+            </div>
           </div>
-          {!selectedLanguage && (
-            <div
-              className="absolute inset-0 cursor-pointer"
-              onClick={() => {
-                setIsLangShaking(true);
-                setIsLangMenuOpen(true);
-              }}
-            />
-          )}
-        </div>
-
-        {activeFileName ? (
-          <p className="mt-4 text-xs text-neutral-400 sm:text-sm">
-            File: {activeFileName}
-          </p>
-        ) : null}
+        ) : (
+          <div className="relative">
+            <div className={selectedLanguage ? "" : "pointer-events-none opacity-40"}>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
+                Step 2 — Upload your audio file
+              </p>
+              <UploadDropzone onFileSelected={handleFileSelected} />
+            </div>
+            {!selectedLanguage && (
+              <div
+                className="absolute inset-0 cursor-pointer"
+                onClick={() => {
+                  setIsLangShaking(true);
+                  setIsLangMenuOpen(true);
+                }}
+              />
+            )}
+          </div>
+        )}
 
 
 
@@ -1055,63 +1078,62 @@ export default function Home() {
         ) : null}
 
         {isWarmingUp ? (
-          <div className="mt-3 space-y-2.5 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+          <div className="mt-3 rounded-xl border border-cyan-500/20 bg-neutral-950/60 p-4 shadow-inner">
             {/* Header row */}
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-xs font-medium text-cyan-300">
-                GPU is active — processing first audio segment
-              </p>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold text-neutral-100">
+                  Transcription in progress
+                </p>
+                <p className="text-xs text-neutral-400">
+                  Initial segment processing — the GPU is warming up. This takes 30–90 s the first time.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={cancelTranscription}
                 disabled={isCancelling}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Square className="size-3.5" />
-                {isCancelling ? "Cancelling..." : "Cancel"}
+                {isCancelling ? "Cancelling…" : "Cancel"}
               </button>
             </div>
 
-            {/* Info chips row */}
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {/* Elapsed timer — the key "it's alive" indicator */}
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 tabular-nums text-cyan-200">
-                <Clock3 className="size-3 animate-spin" style={{ animationDuration: "3s" }} />
+            {/* Stats row */}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-medium tabular-nums text-cyan-300">
+                <Clock3 className="size-3.5" style={{ animationDuration: "3s" }} />
                 {warmUpElapsed}s elapsed
               </span>
 
-              {/* Slice badge */}
               {totalSlices !== null && totalSlices > 1 && currentSlice !== null ? (
-                <span className="rounded-full border border-white/10 bg-neutral-800/60 px-2 py-0.5 text-neutral-300">
-                  Slice {currentSlice}/{totalSlices}
+                <span className="inline-flex items-center rounded-md border border-white/10 bg-neutral-800/60 px-2.5 py-1 text-xs text-neutral-400">
+                  Slice {currentSlice} / {totalSlices}
                 </span>
               ) : null}
 
-              {/* Chunk count */}
               {totalChunks !== null ? (
-                <span className="rounded-full border border-white/10 bg-neutral-800/60 px-2 py-0.5 text-neutral-300">
-                  0/{totalChunks} chunks
+                <span className="inline-flex items-center rounded-md border border-white/10 bg-neutral-800/60 px-2.5 py-1 text-xs text-neutral-400">
+                  0 / {totalChunks} segments
                 </span>
               ) : null}
 
-              {/* Audio length */}
               {roughAudioMinutes !== null ? (
-                <span className="rounded-full border border-white/10 bg-neutral-800/60 px-2 py-0.5 text-neutral-400">
+                <span className="inline-flex items-center rounded-md border border-white/10 bg-neutral-800/60 px-2.5 py-1 text-xs text-neutral-500">
                   ~{roughAudioMinutes} min audio
                 </span>
               ) : null}
             </div>
 
-            {/* Explanation */}
-            <p className="text-xs leading-relaxed text-neutral-400">
-              First segment can take 30–90 s on a cold GPU.
-              If the counter is ticking, the system is working — keep this tab open.
-            </p>
-
-            {/* Shimmer activity bar */}
-            <div className="h-1.5 overflow-hidden rounded-full border border-white/10 bg-neutral-900/90">
-              <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-cyan-600/40 via-cyan-400 to-cyan-600/40 bg-[length:200%_100%]" />
+            {/* Activity bar */}
+            <div className="mt-3 h-1 overflow-hidden rounded-full bg-neutral-800">
+              <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-cyan-600/50 via-cyan-400 to-cyan-600/50 bg-[length:200%_100%]" />
             </div>
+
+            <p className="mt-2 text-xs text-neutral-600">
+              Keep this tab active while processing.
+            </p>
           </div>
         ) : null}
 
@@ -1196,7 +1218,7 @@ export default function Home() {
         </>
         )}
 
-        <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/75">
+        <div className={["mt-4 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/75", justCompleted ? "transcript-flash" : ""].join(" ")}>
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2">
             <div className="flex items-center gap-3">
               <p className="text-sm font-medium text-neutral-200">Transcript Output</p>
@@ -1384,13 +1406,57 @@ export default function Home() {
           </div>
         </div>
 
+        {output.trim() && status !== "transcribing" && status !== "decoding" && status !== "loading" ? (
+          <div className="mt-3 rounded-xl border border-white/10 bg-neutral-900/50 px-4 py-3.5">
+            <p className="mb-0.5 text-sm font-medium text-neutral-200">Continue with AI</p>
+            <p className="mb-3 text-xs leading-relaxed text-neutral-500">
+              Your transcript may be long. Open it in an AI chat to summarize, extract key points, ask questions, or generate study notes — the transcript is copied to clipboard automatically.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(output.trim()).catch(() => {});
+                  window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/25 hover:bg-neutral-800 hover:text-white"
+              >
+                <svg height="13" viewBox="0 0 41 41" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0"><path d="M37.532 16.87a9.963 9.963 0 0 0-.856-8.184 10.078 10.078 0 0 0-10.855-4.835 9.964 9.964 0 0 0-6.99-3.118 10.079 10.079 0 0 0-9.613 6.977 9.967 9.967 0 0 0-6.664 4.834 10.08 10.08 0 0 0 1.24 11.817 9.965 9.965 0 0 0 .856 8.185 10.079 10.079 0 0 0 10.855 4.835 9.965 9.965 0 0 0 6.99 3.117 10.078 10.078 0 0 0 9.617-6.981 9.967 9.967 0 0 0 6.663-4.834 10.079 10.079 0 0 0-1.243-11.813zM22.498 37.886a7.474 7.474 0 0 1-4.799-1.735c.061-.033.168-.091.237-.134l7.964-4.6a1.294 1.294 0 0 0 .655-1.134V19.054l3.366 1.944a.12.12 0 0 1 .066.092v9.299a7.505 7.505 0 0 1-7.49 7.496zM6.392 31.006a7.471 7.471 0 0 1-.894-5.023c.06.036.162.099.237.141l7.964 4.6a1.297 1.297 0 0 0 1.308 0l9.724-5.614v3.888a.12.12 0 0 1-.048.103L16.552 34.1a7.504 7.504 0 0 1-10.16-3.094zM4.297 13.62a7.469 7.469 0 0 1 3.904-3.286c0 .068-.004.19-.004.274v9.201a1.294 1.294 0 0 0 .654 1.132l9.723 5.614-3.366 1.944a.12.12 0 0 1-.114.012L7.044 25.3a7.504 7.504 0 0 1-2.747-11.68zm23.232 6.386l-9.724-5.615 3.367-1.943a.121.121 0 0 1 .114-.012l8.048 4.648a7.498 7.498 0 0 1-1.158 13.528v-9.476a1.293 1.293 0 0 0-.647-1.13zm3.35-5.043c-.059-.037-.162-.099-.236-.141l-7.965-4.6a1.298 1.298 0 0 0-1.308 0l-9.723 5.614v-3.888a.12.12 0 0 1 .048-.103l8.031-4.637a7.5 7.5 0 0 1 11.153 7.755zm-21.063 6.929l-3.367-1.944a.12.12 0 0 1-.065-.092v-9.299a7.5 7.5 0 0 1 12.293-5.756 6.94 6.94 0 0 0-.236.134l-7.965 4.6a1.294 1.294 0 0 0-.654 1.132l-.006 11.225zm1.829-3.943l4.33-2.501 4.332 2.498v4.998l-4.331 2.5-4.331-2.5V19.386z" fill="currentColor"/></svg>
+                ChatGPT
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(output.trim()).catch(() => {});
+                  window.open("https://gemini.google.com/", "_blank", "noopener,noreferrer");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/25 hover:bg-neutral-800 hover:text-white"
+              >
+                <svg height="13" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0"><path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="currentColor"/></svg>
+                Gemini
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(output.trim()).catch(() => {});
+                  window.open("https://grok.com/", "_blank", "noopener,noreferrer");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/25 hover:bg-neutral-800 hover:text-white"
+              >
+                <svg height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0"><path d="M21.6 0H2.4C1.08 0 0 1.08 0 2.4v19.2C0 22.92 1.08 24 2.4 24h19.2c1.32 0 2.4-1.08 2.4-2.4V2.4C24 1.08 22.92 0 21.6 0zm-3.12 18.48h-2.04l-3.12-4.56-3.36 4.56H7.92l4.32-5.76L7.8 5.52h2.04l2.88 4.2 3.12-4.2h2.04l-4.2 5.52 4.8 7.44z" fill="currentColor"/></svg>
+                Grok
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-4 rounded-lg border border-white/10 bg-neutral-950/70 px-3 py-2 text-xs text-neutral-400 sm:text-sm">
           Supports <span className="font-medium text-neutral-300">.mp3, .wav, .m4a, .mp4, .ogg, .flac, .aac, .webm, .opus</span>.
           Transcription runs in-browser with{" "}
           <span className="font-medium text-neutral-300">Whisper Small</span>.
           <br />
           <span className="mt-1 block text-amber-500/80">
-            ⚠️ Do not refresh the page during transcription, or your progress will be lost.
+            Do not refresh the page during transcription, or your progress will be lost.
           </span>
         </div>
 
@@ -1400,15 +1466,15 @@ export default function Home() {
           </p>
         ) : null}
 
-        <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
-          <p className="text-xs text-neutral-500">
+        <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-5">
+          <p className="text-sm text-neutral-500">
             Developed by{" "}
             <span className="font-medium text-neutral-300">Onat Özmen</span>
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <a
               href="/privacy"
-              className="text-xs text-neutral-500 transition-colors hover:text-neutral-300"
+              className="text-sm text-neutral-500 transition-colors hover:text-neutral-300"
             >
               Privacy Policy
             </a>
@@ -1417,9 +1483,9 @@ export default function Home() {
               href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-cyan-400/40 hover:bg-neutral-800 hover:text-cyan-200"
+              className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-300 transition-colors hover:border-cyan-400/40 hover:bg-neutral-800 hover:text-cyan-200"
             >
-              <Linkedin className="size-3.5" />
+              <Linkedin className="size-4" />
               LinkedIn
             </a>
           </div>

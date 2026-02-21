@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { FileAudio, UploadCloud, XCircle } from "lucide-react";
+import { UploadCloud, XCircle } from "lucide-react";
 import { useRef, useState } from "react";
 
 export type AcceptedAudioExtension = "mp3" | "wav" | "m4a" | "mp4" | "ogg" | "flac" | "aac" | "webm" | "opus";
@@ -132,12 +132,12 @@ export function UploadDropzone({ onFileSelected }: UploadDropzoneProps) {
       ) : null}
 
       {selectedFile ? (
-        <div className="mt-3 flex items-center justify-between rounded-lg border border-neutral-700 bg-neutral-900/70 px-3 py-2 text-sm">
-          <div className="flex min-w-0 items-center gap-2">
-            <FileAudio className="size-4 shrink-0 text-cyan-300" />
-            <span className="truncate text-neutral-200">{selectedFile.name}</span>
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-neutral-900/80 px-3.5 py-2.5">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M560-360v-240l80 80 56-56-160-160-160 160 56 56 80-80v240h48Zm-80 200q-83 0-141.5-58.5T280-360v-400h400v400q0 83-58.5 141.5T480-160Zm0-80q50 0 85-35t35-85v-320H360v320q0 50 35 85t85 35ZM200-80q-33 0-56.5-23.5T120-160v-520h80v520h520v80H200Zm280-440Z"/></svg>
+            <span className="truncate text-sm text-neutral-200">{selectedFile.name}</span>
           </div>
-          <span className="text-neutral-400">{formatFileSize(selectedFile.size)}</span>
+          <span className="shrink-0 text-xs tabular-nums text-neutral-500">{formatFileSize(selectedFile.size)}</span>
         </div>
       ) : null}
     </div>

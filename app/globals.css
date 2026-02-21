@@ -29,6 +29,28 @@
   animation: shake 0.45s ease-in-out;
 }
 
+@keyframes fadeUp {
+  0%   { opacity: 0; transform: translateY(5px); }
+  12%  { opacity: 1; transform: translateY(0); }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.complete-badge {
+  animation: fadeUp 2.8s ease-in-out forwards;
+}
+
+@keyframes transcriptFlash {
+  0%   { box-shadow: 0 0 0 0px rgba(52,211,153,0); }
+  15%  { box-shadow: 0 0 0 2px rgba(52,211,153,0.55), 0 0 28px rgba(52,211,153,0.18); }
+  65%  { box-shadow: 0 0 0 2px rgba(52,211,153,0.55), 0 0 28px rgba(52,211,153,0.18); }
+  100% { box-shadow: 0 0 0 0px rgba(52,211,153,0); }
+}
+
+.transcript-flash {
+  animation: transcriptFlash 2.4s ease-in-out forwards;
+}
+
 html,
 body {
   min-height: 100%;
