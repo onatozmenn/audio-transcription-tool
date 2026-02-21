@@ -3,7 +3,7 @@ const emptyModuleAlias = "./lib/empty-module.ts";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["@xenova/transformers"],
+  serverExternalPackages: ["@huggingface/transformers"],
   turbopack: {
     resolveAlias: {
       sharp: emptyModuleAlias,

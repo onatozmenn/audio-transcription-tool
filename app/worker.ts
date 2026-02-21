@@ -1,8 +1,5 @@
-import { env, pipeline } from "@xenova/transformers/dist/transformers.js";
-import type {
-  AutomaticSpeechRecognitionConfig,
-  AutomaticSpeechRecognitionPipeline,
-} from "@xenova/transformers";
+﻿import { env, pipeline } from "@huggingface/transformers";
+import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 
 type WhisperLanguage =
   | "english"
@@ -38,7 +35,7 @@ type WorkerRequest =
 type WorkerStatus = "loading" | "ready" | "transcribing" | "error";
 
 type WorkerResponse =
-  | { type: "status"; status: WorkerStatus; requestId?: number; detail?: string }
+  | { type: "status"; status: WorkerStatus; requestId?: number; detail?: string; device?: string }
   | {
       type: "progress";
       phase: ProgressPhase;
@@ -46,6 +43,8 @@ type WorkerResponse =
       requestId?: number;
       processedChunks?: number;
       totalChunks?: number;
+      currentSlice?: number;
+      totalSlices?: number;
       loaded?: number;
       total?: number;
       file?: string;
@@ -55,22 +54,24 @@ type WorkerResponse =
   | { type: "result"; text: string; requestId: number }
   | { type: "error"; error: string; requestId?: number };
 
-type DecodedChunk = {
-  tokens: number[];
-  stride: number[];
-  token_timestamps?: number[];
-};
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-const SAMPLE_RATE = 16_000;
-const CHUNK_LENGTH_SECONDS = 30;
-const STRIDE_LENGTH_SECONDS = 5;
-const CHUNK_WINDOW_SIZE = SAMPLE_RATE * CHUNK_LENGTH_SECONDS;
-const STRIDE_SIZE = SAMPLE_RATE * STRIDE_LENGTH_SECONDS;
-const CHUNK_JUMP_SIZE = CHUNK_WINDOW_SIZE - 2 * STRIDE_SIZE;
 const ASR_MODEL_ID = "Xenova/whisper-small";
+const CHUNK_LENGTH_S = 30;
+const STRIDE_LENGTH_S = 5;
+const SAMPLE_RATE = 16_000;
+const CHUNK_JUMP_SAMPLES = (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) * SAMPLE_RATE;
+
+// ─── Worker environment ───────────────────────────────────────────────────────
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
+// Suppress the ORT "Some nodes were not assigned to the preferred EP" warning.
+// ORT deliberately routes shape-related ops to CPU even on WebGPU — this is
+// intentional and has no negative impact; the warning is purely informational.
+// Setting logSeverityLevel to 3 (Error) silences Warning-level ORT messages.
+(env.backends as Record<string, Record<string, unknown>>).onnx ??= {};
+(env.backends as Record<string, Record<string, unknown>>).onnx.logSeverityLevel = 3;
 
 type WorkerScope = {
   postMessage: (message: WorkerResponse) => void;
@@ -82,16 +83,20 @@ type WorkerScope = {
 
 const workerScope = self as unknown as WorkerScope;
 
-let transcriberPromise: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
+// ─── Pipeline singleton ───────────────────────────────────────────────────────
 
-function postToMain(message: WorkerResponse) {
+let transcriberPromise: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
+/** Tracks which device the active pipeline was initialised on. */
+let activeDevice: "webgpu" | "wasm" | null = null;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function postToMain(message: WorkerResponse): void {
   workerScope.postMessage(message);
 }
 
 function normalizeProgress(rawProgress: unknown): number {
-  if (typeof rawProgress !== "number" || Number.isNaN(rawProgress)) {
-    return 0;
-  }
+  if (typeof rawProgress !== "number" || Number.isNaN(rawProgress)) return 0;
   const normalized = rawProgress <= 1 ? rawProgress * 100 : rawProgress;
   return Math.max(0, Math.min(100, normalized));
 }
@@ -103,10 +108,9 @@ function errorMessage(error: unknown): string {
 }
 
 function estimateChunkCount(audioLength: number): number {
-  if (audioLength <= CHUNK_WINDOW_SIZE || CHUNK_JUMP_SIZE <= 0) {
-    return 1;
-  }
-  return Math.ceil((audioLength - CHUNK_WINDOW_SIZE) / CHUNK_JUMP_SIZE) + 1;
+  const windowSamples = CHUNK_LENGTH_S * SAMPLE_RATE;
+  if (audioLength <= windowSamples || CHUNK_JUMP_SAMPLES <= 0) return 1;
+  return Math.ceil((audioLength - windowSamples) / CHUNK_JUMP_SAMPLES) + 1;
 }
 
 function toSafeTimestamp(value: unknown, fallback: number): number {
@@ -125,9 +129,7 @@ function collapseConsecutiveRepeatedNgrams(text: string): string {
   if (!normalized) return "";
 
   const words = normalized.split(" ");
-  if (words.length < 6) {
-    return normalized;
-  }
+  if (words.length < 6) return normalized;
 
   for (let gramSize = Math.min(20, Math.floor(words.length / 2)); gramSize >= 3; gramSize -= 1) {
     let index = gramSize * 2;
@@ -139,7 +141,6 @@ function collapseConsecutiveRepeatedNgrams(text: string): string {
           break;
         }
       }
-
       if (repeated) {
         words.splice(index - gramSize, gramSize);
       } else {
@@ -175,18 +176,14 @@ function dedupeSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
       continue;
     }
 
-    const prevNormalized = normalizeForCompare(prev.text);
-    const nextNormalized = normalizeForCompare(next.text);
+    const prevNorm = normalizeForCompare(prev.text);
+    const nextNorm = normalizeForCompare(next.text);
     const overlaps = next.start <= prev.end + 0.35;
     const sameOrContained =
-      prevNormalized === nextNormalized ||
-      prevNormalized.includes(nextNormalized) ||
-      nextNormalized.includes(prevNormalized);
+      prevNorm === nextNorm || prevNorm.includes(nextNorm) || nextNorm.includes(prevNorm);
 
     if (sameOrContained && overlaps) {
-      if (nextNormalized.length > prevNormalized.length) {
-        prev.text = next.text;
-      }
+      if (nextNorm.length > prevNorm.length) prev.text = next.text;
       prev.end = Math.max(prev.end, next.end);
       continue;
     }
@@ -197,105 +194,129 @@ function dedupeSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return deduped;
 }
 
-function decodeChunksToText(
-  transcriber: AutomaticSpeechRecognitionPipeline,
-  chunks: DecodedChunk[],
-): string | null {
-  const validChunks = chunks.filter(
-    (chunk) =>
-      Array.isArray(chunk.tokens) &&
-      chunk.tokens.length > 0 &&
-      chunk.tokens.every((token) => Number.isInteger(token)) &&
-      Array.isArray(chunk.stride),
-  );
+// ─── Pipeline initialisation (WebGPU → WASM fallback) ─────────────────────────
 
-  const tokenizer = transcriber.tokenizer as {
-    _decode_asr?: (
-      sequences: DecodedChunk[],
-      options?: {
-        return_timestamps?: boolean;
-        force_full_sequences?: boolean;
-        time_precision?: number;
-      },
-    ) => unknown[];
-  };
+type DownloadProgressInfo = {
+  status?: string;
+  progress?: number;
+  loaded?: number;
+  total?: number;
+  file?: string;
+};
 
-  if (typeof tokenizer._decode_asr !== "function" || validChunks.length === 0) {
-    return null;
+/**
+ * progress_callback wired to the UI Progress Bar.
+ * Called by @huggingface/transformers while model files are being downloaded.
+ * Bind this to any UI progress element via the "progress" + "download" messages
+ * received on the main thread.
+ */
+function onDownloadProgress(info: DownloadProgressInfo): void {
+  // "ready" fires once ALL model shards are downloaded and the weights are
+  // being loaded into GPU memory. WebGPU then begins shader compilation —
+  // a silent phase that can take 1–3 minutes with no further progress events.
+  // Post a distinct "compiling" detail so the UI can show a clear message.
+  if (info.status === "ready") {
+    postToMain({ type: "status", status: "loading", detail: "compiling" });
+    return;
   }
 
-  const featureExtractor = (transcriber.processor as { feature_extractor?: { config?: unknown } })
-    .feature_extractor;
-  const config = featureExtractor?.config as { chunk_length?: number } | undefined;
-  const modelConfig = transcriber.model.config as { max_source_positions?: number };
+  postToMain({ type: "status", status: "loading", detail: info.status ?? "Loading model…" });
+  postToMain({
+    type: "progress",
+    phase: "download",
+    progress: normalizeProgress(info.progress),
+    loaded: info.loaded,
+    total: info.total,
+    file: info.file,
+  });
+}
 
-  const timePrecision =
-    typeof config?.chunk_length === "number" &&
-    typeof modelConfig.max_source_positions === "number" &&
-    modelConfig.max_source_positions > 0
-      ? config.chunk_length / modelConfig.max_source_positions
-      : undefined;
-
-  const decoded = tokenizer._decode_asr(validChunks, {
-    return_timestamps: false,
-    force_full_sequences: false,
-    time_precision: timePrecision,
+async function buildPipeline(
+  device: "webgpu" | "wasm",
+): Promise<AutomaticSpeechRecognitionPipeline> {
+  postToMain({
+    type: "status",
+    status: "loading",
+    detail: `Initialising model on ${device.toUpperCase()}…`,
   });
 
-  const first = Array.isArray(decoded) ? decoded[0] : null;
-  if (typeof first === "string") {
-    return first.trim();
-  }
-  if (first && typeof first === "object" && "text" in first) {
-    const text = (first as { text?: unknown }).text;
-    if (typeof text === "string") {
-      return text.trim();
-    }
-  }
-  return null;
+  // WebGPU: fp16 encoder + q4 decoder — fp16 is native to GPU shaders and
+  // ~2× faster than fp32 with negligible accuracy difference on whisper-small.
+  // WASM fallback: q8 quantisation for acceptable CPU-only inference speed.
+  const options =
+    device === "webgpu"
+      ? {
+          dtype: {
+            encoder_model: "fp16" as const,
+            decoder_model_merged: "q4" as const,
+          },
+          device: "webgpu" as const,
+          progress_callback: onDownloadProgress,
+          session_options: { logSeverityLevel: 3 as const },
+        }
+      : {
+          dtype: "q8" as const,
+          device: "wasm" as const,
+          progress_callback: onDownloadProgress,
+          session_options: { logSeverityLevel: 3 as const },
+        };
+
+  // Cast through `unknown` to avoid the overly-complex union type that
+  // @huggingface/transformers v3 pipeline overloads produce for TS.
+  return pipeline(
+    "automatic-speech-recognition",
+    ASR_MODEL_ID,
+    options,
+  ) as unknown as Promise<AutomaticSpeechRecognitionPipeline>;
 }
 
 async function getTranscriber(): Promise<AutomaticSpeechRecognitionPipeline> {
   if (!transcriberPromise) {
-    postToMain({ type: "status", status: "loading", detail: "Initializing model..." });
-    transcriberPromise = pipeline("automatic-speech-recognition", ASR_MODEL_ID, {
-      quantized: true,
-      progress_callback: (progressInfo: {
-        status?: string;
-        progress?: number;
-        loaded?: number;
-        total?: number;
-        file?: string;
-      }) => {
+    postToMain({ type: "status", status: "loading", detail: "Initialising model…" });
+
+    transcriberPromise = (async () => {
+      // ── Try WebGPU first; gracefully fall back to WASM when unsupported ──
+      try {
+        const transcriber = await buildPipeline("webgpu");
+        activeDevice = "webgpu";
+        return transcriber;
+      } catch (webGpuError) {
+        console.warn(
+          "[worker] WebGPU unavailable — falling back to WASM:",
+          errorMessage(webGpuError),
+        );
         postToMain({
           type: "status",
           status: "loading",
-          detail: progressInfo.status ?? "Loading model...",
+          detail: "WebGPU not available — falling back to WASM…",
         });
-        postToMain({
-          type: "progress",
-          phase: "download",
-          progress: normalizeProgress(progressInfo.progress),
-          loaded: progressInfo.loaded,
-          total: progressInfo.total,
-          file: progressInfo.file,
-        });
-      },
-    }) as Promise<AutomaticSpeechRecognitionPipeline>;
+        const transcriber = await buildPipeline("wasm");
+        activeDevice = "wasm";
+        return transcriber;
+      }
+    })();
   }
 
   try {
     const transcriber = await transcriberPromise;
-    postToMain({ type: "status", status: "ready", detail: "Model ready." });
+    postToMain({
+      type: "status",
+      status: "ready",
+      detail: `Model ready (${activeDevice?.toUpperCase() ?? "unknown"}).`,
+      device: activeDevice ?? undefined,
+    });
     return transcriber;
   } catch (error) {
     transcriberPromise = null;
-    const message = errorMessage(error);
-    postToMain({ type: "status", status: "error", detail: message });
-    postToMain({ type: "error", error: message });
+    activeDevice = null;
+    const msg = errorMessage(error);
+    postToMain({ type: "status", status: "error", detail: msg });
+    postToMain({ type: "error", error: msg });
     throw error;
   }
 }
+
+// ─── Message handler ──────────────────────────────────────────────────────────
 
 workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
@@ -309,135 +330,134 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
     return;
   }
 
-  if (message.type !== "transcribe") {
-    return;
-  }
+  if (message.type !== "transcribe") return;
 
   const { requestId, audio } = message;
   const languageHint = message.language;
 
   try {
     const transcriber = await getTranscriber();
-    postToMain({ type: "status", status: "transcribing", requestId });
+    postToMain({ type: "status", status: "transcribing", requestId, device: activeDevice ?? undefined });
 
-    const chunks: DecodedChunk[] = [];
-    let latestPartial = "";
-    const totalChunks = estimateChunkCount(audio.length);
-    let processedChunks = 0;
+    // ── Own 30-second windowing with overlap ─────────────────────────────────
+    //
+    // @huggingface/transformers v3 does NOT support `chunk_callback`.
+    // The pipeline's internal chunking processes ALL windows in a blocking
+    // loop with no progress events → the UI appears frozen for minutes.
+    //
+    // Instead we create overlapping 30-second windows ourselves, feed each
+    // one to the pipeline as a single-chunk call (chunk_length_s = 0), and
+    // emit progress after every `await transcriber()` return.
+    //
+    // Using `audio.slice()` (not `subarray()`) is critical: subarray shares
+    // the original ArrayBuffer; the ONNX WebGPU backend may read the entire
+    // buffer via `Float32Array(audio.buffer)` → OOM on large files.
+
+    const WINDOW_SAMPLES = CHUNK_LENGTH_S * SAMPLE_RATE;   // 30 s = 480 000
+    const STRIDE_SAMPLES = STRIDE_LENGTH_S * SAMPLE_RATE;  // 5 s  =  80 000
+    const JUMP_SAMPLES   = CHUNK_JUMP_SAMPLES;             // 20 s = 320 000
+
+    // Build the list of overlapping windows
+    type Window = { data: Float32Array; offsetS: number };
+    const windows: Window[] = [];
+    let offset = 0;
+    while (offset < audio.length) {
+      const end = Math.min(offset + WINDOW_SAMPLES, audio.length);
+      windows.push({ data: audio.slice(offset, end), offsetS: offset / SAMPLE_RATE });
+      if (end >= audio.length) break;
+      offset += JUMP_SAMPLES;
+    }
+
+    const totalWindows = windows.length;
 
     postToMain({
       type: "progress",
       phase: "transcribing",
       progress: 0,
       requestId,
-      processedChunks,
-      totalChunks,
+      processedChunks: 0,
+      totalChunks: totalWindows,
+      currentSlice: 1,
+      totalSlices: 1,
     });
 
-    const transcriptionOptions: AutomaticSpeechRecognitionConfig = {
-      return_timestamps: true,
-      chunk_length_s: CHUNK_LENGTH_SECONDS,
-      stride_length_s: STRIDE_LENGTH_SECONDS,
-      task: "transcribe",
-      temperature: 0,
-      num_beams: 5,
-      no_repeat_ngram_size: 3,
-      repetition_penalty: 1.3,
-      chunk_callback: (chunk: {
-        tokens?: number[];
-        stride?: number[];
-        token_timestamps?: number[];
-      }) => {
-        processedChunks = Math.min(totalChunks, processedChunks + 1);
-        postToMain({
-          type: "progress",
-          phase: "transcribing",
-          progress: normalizeProgress((processedChunks / totalChunks) * 100),
-          requestId,
-          processedChunks,
-          totalChunks,
-        });
+    // ── Accumulators ─────────────────────────────────────────────────────────
+    const accumulatedTexts: string[] = [];
+    const allSegments: TranscriptSegment[] = [];
 
-        if (
-          !Array.isArray(chunk.tokens) ||
-          chunk.tokens.length === 0 ||
-          !chunk.tokens.every((token) => Number.isInteger(token)) ||
-          !Array.isArray(chunk.stride)
-        ) {
-          return;
-        }
+    // ── Process each window sequentially ─────────────────────────────────────
+    for (let i = 0; i < totalWindows; i++) {
+      const win = windows[i];
 
-        chunks.push({
-          tokens: chunk.tokens,
-          stride: chunk.stride,
-          token_timestamps: chunk.token_timestamps,
-        });
+      const result = await transcriber(win.data, {
+        return_timestamps: true,
+        // chunk_length_s = 0 → pipeline treats the entire input as one chunk
+        // (no internal windowing). Each window is already ≤ 30 s.
+        chunk_length_s: 0,
+        // Greedy decoding – one forward pass per chunk, no beam-search overhead.
+        temperature: 0,
+        num_beams: 1,
+        language: languageHint && languageHint !== "auto" ? languageHint : undefined,
+      } as Record<string, unknown>);
 
-        try {
-          const decoded = decodeChunksToText(transcriber, chunks);
-          if (!decoded) {
-            return;
-          }
+      const normalized = Array.isArray(result) ? result[0] : result;
 
-          const cleanedPartial = normalizeWhitespace(decoded);
-          if (cleanedPartial && cleanedPartial !== latestPartial) {
-            latestPartial = cleanedPartial;
-            postToMain({ type: "partial", text: cleanedPartial, requestId });
-          }
-        } catch {
-          // Partial decoding is best-effort. Ignore transient chunk decode errors.
-        }
-      },
-    };
-
-    if (languageHint && languageHint !== "auto") {
-      transcriptionOptions.language = languageHint;
-    }
-
-    const output = await transcriber(audio, transcriptionOptions);
-
-    postToMain({
-      type: "progress",
-      phase: "transcribing",
-      progress: 100,
-      requestId,
-      processedChunks: totalChunks,
-      totalChunks,
-    });
-
-    const normalizedOutput = Array.isArray(output) ? output[0] : output;
-    const finalText = collapseConsecutiveRepeatedNgrams((normalizedOutput?.text ?? "").trim());
-    const rawChunks = Array.isArray(normalizedOutput?.chunks) ? normalizedOutput.chunks : [];
-
-    const mappedSegments: TranscriptSegment[] = rawChunks
-      .map((chunk) => {
+      // ── Collect segments and offset timestamps ────────────────────────────
+      const rawChunks = Array.isArray(normalized?.chunks) ? normalized.chunks : [];
+      for (const chunk of rawChunks) {
         const text = typeof chunk.text === "string" ? chunk.text.trim() : "";
-        const rawStart = Array.isArray(chunk.timestamp) ? chunk.timestamp[0] : 0;
-        const start = toSafeTimestamp(rawStart, 0);
-        const rawEnd = Array.isArray(chunk.timestamp) ? chunk.timestamp[1] : start;
-        const end = toSafeTimestamp(rawEnd, start);
-        return { text, start, end };
-      })
-      .filter((segment) => segment.text.length > 0);
+        if (!text) continue;
+        const ts = Array.isArray(chunk.timestamp) ? chunk.timestamp : [0, 0];
+        const start = toSafeTimestamp(ts[0], 0) + win.offsetS;
+        const end   = toSafeTimestamp(ts[1], toSafeTimestamp(ts[0], 0)) + win.offsetS;
+        allSegments.push({ text, start, end });
+      }
 
-    let segments = dedupeSegments(mappedSegments);
-    if (segments.length === 0 && finalText) {
-      segments = [{ text: finalText, start: 0, end: 0 }];
+      // ── Live preview ──────────────────────────────────────────────────────
+      const windowText = normalizeWhitespace(normalized?.text ?? "");
+      if (windowText) {
+        accumulatedTexts.push(windowText);
+        postToMain({ type: "partial", text: accumulatedTexts.join(" "), requestId });
+      }
+
+      // ── Progress ──────────────────────────────────────────────────────────
+      const processed = i + 1;
+      postToMain({
+        type: "progress",
+        phase: "transcribing",
+        progress: normalizeProgress((processed / totalWindows) * 100),
+        requestId,
+        processedChunks: processed,
+        totalChunks: totalWindows,
+        currentSlice: 1,
+        totalSlices: 1,
+      });
     }
 
-    const finalTextFromSegments = collapseConsecutiveRepeatedNgrams(
-      segments.map((segment) => segment.text).join(" "),
+    // ── Merge + deduplicate segments ─────────────────────────────────────────
+    let segments = dedupeSegments(allSegments);
+
+    const rawFullText = collapseConsecutiveRepeatedNgrams(
+      accumulatedTexts.join(" "),
     );
-    const canonicalText = finalTextFromSegments || finalText;
+
+    if (segments.length === 0 && rawFullText) {
+      segments = [{ text: rawFullText, start: 0, end: 0 }];
+    }
+
+    const canonicalText =
+      collapseConsecutiveRepeatedNgrams(segments.map((s) => s.text).join(" ")) ||
+      rawFullText;
 
     postToMain({ type: "segments", requestId, text: canonicalText, segments });
-    postToMain({ type: "result", text: canonicalText, requestId });
-    postToMain({ type: "status", status: "ready", requestId });
+    postToMain({ type: "result",   text: canonicalText, requestId });
+    postToMain({ type: "status",   status: "ready", requestId });
   } catch (error) {
-    const messageText = errorMessage(error);
-    postToMain({ type: "status", status: "error", requestId, detail: messageText });
-    postToMain({ type: "error", error: messageText, requestId });
+    const msg = errorMessage(error);
+    postToMain({ type: "status", status: "error", requestId, detail: msg });
+    postToMain({ type: "error",  error: msg, requestId });
   }
 });
 
 export {};
+

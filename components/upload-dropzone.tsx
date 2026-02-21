@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FileAudio, UploadCloud, XCircle } from "lucide-react";
 import { useRef, useState } from "react";

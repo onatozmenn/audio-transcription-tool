@@ -1,3 +1,3 @@
-declare module "@xenova/transformers/dist/transformers.js" {
-  export * from "@xenova/transformers";
-}
+// @huggingface/transformers ships its own TypeScript declarations;
+// no extra module shim is required for v3.
+export {};

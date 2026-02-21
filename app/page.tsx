@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   AlertCircle,
@@ -31,7 +31,7 @@ type WhisperLanguage =
   | "japanese"
   | "korean";
 
-type LanguageOption = { value: "auto" | WhisperLanguage; label: string };
+type LanguageOption = { value: "auto" | WhisperLanguage; label: string; flag: string };
 type ProgressPhase = "download" | "transcribing";
 type CopyState = "idle" | "success" | "error";
 type FontMode = "sans" | "mono";
@@ -66,7 +66,7 @@ type TranscriptExportJson = {
 };
 
 type WorkerResponse =
-  | { type: "status"; status: WorkerStatus; requestId?: number; detail?: string }
+  | { type: "status"; status: WorkerStatus; requestId?: number; detail?: string; device?: string }
   | {
       type: "progress";
       phase: ProgressPhase;
@@ -74,6 +74,8 @@ type WorkerResponse =
       requestId?: number;
       processedChunks?: number;
       totalChunks?: number;
+      currentSlice?: number;
+      totalSlices?: number;
       loaded?: number;
       total?: number;
       file?: string;
@@ -84,26 +86,26 @@ type WorkerResponse =
   | { type: "error"; error: string; requestId?: number };
 
 const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { value: "english", label: "English" },
-  { value: "turkish", label: "Turkish" },
-  { value: "spanish", label: "Spanish" },
-  { value: "french", label: "French" },
-  { value: "german", label: "German" },
-  { value: "italian", label: "Italian" },
-  { value: "portuguese", label: "Portuguese" },
-  { value: "russian", label: "Russian" },
-  { value: "arabic", label: "Arabic" },
-  { value: "hindi", label: "Hindi" },
-  { value: "japanese", label: "Japanese" },
-  { value: "korean", label: "Korean" },
+  { value: "english", label: "English", flag: "🇬🇧" },
+  { value: "turkish", label: "Turkish", flag: "🇹🇷" },
+  { value: "spanish", label: "Spanish", flag: "🇪🇸" },
+  { value: "french", label: "French", flag: "🇫🇷" },
+  { value: "german", label: "German", flag: "🇩🇪" },
+  { value: "italian", label: "Italian", flag: "🇮🇹" },
+  { value: "portuguese", label: "Portuguese", flag: "🇵🇹" },
+  { value: "russian", label: "Russian", flag: "🇷🇺" },
+  { value: "arabic", label: "Arabic", flag: "🇸🇦" },
+  { value: "hindi", label: "Hindi", flag: "🇮🇳" },
+  { value: "japanese", label: "Japanese", flag: "🇯🇵" },
+  { value: "korean", label: "Korean", flag: "🇰🇷" },
 ];
 
 function statusLabel(status: TranscriptionStatus): string {
-  if (status === "idle") return "Idle";
+  if (status === "idle") return "Ready";
   if (status === "loading") return "Loading model";
   if (status === "decoding") return "Decoding audio";
   if (status === "transcribing") return "Transcribing";
-  if (status === "ready") return "Ready";
+  if (status === "ready") return "Completed";
   return "Error";
 }
 
@@ -165,7 +167,7 @@ async function decodeAudioFile(file: File): Promise<Float32Array> {
     throw new Error("Web Audio API is not supported in this browser.");
   }
 
-  const audioContext = new AudioContextClass();
+  const audioContext = new AudioContextClass({ sampleRate: 16_000 });
   try {
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
     const mono = downmixToMono(audioBuffer);
@@ -207,6 +209,7 @@ export default function Home() {
   const copyResetTimeoutRef = useRef<number | null>(null);
   const outputTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const langMenuRef = useRef<HTMLDivElement | null>(null);
   const transcribeStartedAtRef = useRef<number | null>(null);
 
   const [status, setStatus] = useState<TranscriptionStatus>("idle");
@@ -225,9 +228,15 @@ export default function Home() {
   const [fontMode, setFontMode] = useState<FontMode>("sans");
   const [isCancelling, setIsCancelling] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [downloadedBytes, setDownloadedBytes] = useState<number | null>(null);
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"plain" | "timestamps">("timestamps");
+  const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
+  const [activeDevice, setActiveDevice] = useState<"webgpu" | "wasm" | null>(null);
+  const [currentSlice, setCurrentSlice] = useState<number | null>(null);
+  const [totalSlices, setTotalSlices] = useState<number | null>(null);
+  const [warmUpElapsed, setWarmUpElapsed] = useState(0);
 
   const clearProgressState = useCallback(() => {
     setProgress(0);
@@ -237,6 +246,9 @@ export default function Home() {
     setEtaSeconds(null);
     setDownloadedBytes(null);
     setTotalBytes(null);
+    setLoadingDetail(null);
+    setCurrentSlice(null);
+    setTotalSlices(null);
     transcribeStartedAtRef.current = null;
   }, []);
 
@@ -252,10 +264,16 @@ export default function Home() {
 
         if (message.status === "loading") {
           setStatus("loading");
+          if (message.detail) setLoadingDetail(message.detail);
+          if (message.device) setActiveDevice(message.device as "webgpu" | "wasm");
         } else if (message.status === "transcribing") {
           setStatus("transcribing");
+          setLoadingDetail(null);
+          if (message.device) setActiveDevice(message.device as "webgpu" | "wasm");
         } else if (message.status === "ready") {
           setStatus("ready");
+          setLoadingDetail(null);
+          if (message.device) setActiveDevice(message.device as "webgpu" | "wasm");
           setProgressPhase(null);
           setProcessedChunks(null);
           setTotalChunks(null);
@@ -263,6 +281,7 @@ export default function Home() {
           transcribeStartedAtRef.current = null;
         } else if (message.status === "error") {
           setStatus("error");
+          setLoadingDetail(null);
           clearProgressState();
         }
 
@@ -298,6 +317,8 @@ export default function Home() {
         setStatus("transcribing");
         setProcessedChunks(message.processedChunks ?? null);
         setTotalChunks(message.totalChunks ?? null);
+        if (typeof message.currentSlice === "number") setCurrentSlice(message.currentSlice);
+        if (typeof message.totalSlices  === "number") setTotalSlices(message.totalSlices);
 
         if (transcribeStartedAtRef.current === null) {
           transcribeStartedAtRef.current = Date.now();
@@ -457,6 +478,33 @@ export default function Home() {
   }, [isExportMenuOpen]);
 
   useEffect(() => {
+    if (!isLangMenuOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        langMenuRef.current &&
+        event.target instanceof Node &&
+        !langMenuRef.current.contains(event.target)
+      ) {
+        setIsLangMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsLangMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isLangMenuOpen]);
+
+  useEffect(() => {
     const textarea = outputTextareaRef.current;
     if (!textarea) return;
 
@@ -464,7 +512,13 @@ export default function Home() {
     const nextHeight = Math.max(220, Math.min(textarea.scrollHeight, 520));
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > 520 ? "auto" : "hidden";
-  }, [fontMode, output]);
+
+    // Auto-scroll to the bottom while transcription is streaming so the user
+    // can watch new chunks appear live without manually scrolling.
+    if (status === "transcribing") {
+      textarea.scrollTop = textarea.scrollHeight;
+    }
+  }, [fontMode, output, status]);
 
   useEffect(() => {
     if (progressPhase !== "transcribing" || etaSeconds === null || etaSeconds <= 0) {
@@ -539,7 +593,7 @@ export default function Home() {
       return segments
         .map((segment) => segment.text.trim())
         .filter(Boolean)
-        .join("\n\n");
+        .join(" ");
     }
     return output.trim();
   }, [output, segments]);
@@ -675,36 +729,95 @@ export default function Home() {
       return `Downloading model... ${progress.toFixed(0)}%`;
     }
     if (progressPhase === "transcribing") {
-      if (processedChunks !== null && totalChunks !== null) {
-        return `Transcribing... ${progress.toFixed(0)}% (${processedChunks}/${totalChunks} chunks)`;
-      }
-      return `Transcribing... ${progress.toFixed(0)}%`;
+      // Processed audio time: each 30-s chunk with 10-s jump = 20 s of new audio per chunk
+      const processedAudioSec =
+        processedChunks !== null ? Math.round(processedChunks * 20) : null;
+      const totalAudioSec =
+        totalChunks !== null ? Math.round((totalChunks - 1) * 20 + 30) : null;
+
+      const fmtMin = (s: number) => {
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return sec === 0 ? `${m} min` : `${m}:${String(sec).padStart(2, "0")} min`;
+      };
+
+      const timeStr =
+        processedAudioSec !== null && totalAudioSec !== null
+          ? `${fmtMin(processedAudioSec)} / ${fmtMin(totalAudioSec)} transcribed`
+          : null;
+
+      const sliceStr =
+        totalSlices !== null && totalSlices > 1 && currentSlice !== null
+          ? `Slice ${currentSlice}/${totalSlices}`
+          : null;
+
+      const pctStr = `${progress.toFixed(0)}%`;
+
+      return [sliceStr, timeStr, pctStr].filter(Boolean).join("  ·  ");
     }
     return "";
-  }, [downloadedBytes, processedChunks, progress, progressPhase, totalBytes, totalChunks]);
+  }, [currentSlice, downloadedBytes, processedChunks, progress, progressPhase, totalBytes, totalChunks, totalSlices]);
+
+  /**
+   * Rough audio duration in minutes derived from total chunk count.
+   * Each chunk advances by (CHUNK_LENGTH_S - 2 * STRIDE_LENGTH_S) = 20 s,
+   * so total audio ≈ (chunks − 1) × 20s + 30s.
+   */
+  const roughAudioMinutes =
+    totalChunks !== null && totalChunks > 0
+      ? Math.round(((totalChunks - 1) * 20 + 30) / 60)
+      : null;
 
   const etaLabel = useMemo(() => {
-    if (progressPhase !== "transcribing") {
-      return null;
-    }
+    if (progressPhase !== "transcribing") return null;
+
+    // Before the first chunk completes we have no timing data —
+    // show a rough estimate from audio duration instead of "calculating..."
     if (etaSeconds === null) {
-      return "Estimated time left: calculating...";
+      if (roughAudioMinutes !== null && roughAudioMinutes > 0) {
+        // whisper-small on WebGPU processes roughly 3–5× real-time
+        const low = Math.max(1, Math.round(roughAudioMinutes / 5));
+        const high = Math.max(2, Math.round(roughAudioMinutes / 2));
+        return `Audio length ~${roughAudioMinutes} min — estimated processing time: ${low}–${high} min`;
+      }
+      return "Estimated time: calculating...";
     }
-    if (etaSeconds <= 0) {
-      return "Estimated time left: finishing up...";
-    }
-    return `Estimated time left: ${formatSegmentTimestamp(etaSeconds)}`;
-  }, [etaSeconds, progressPhase]);
+    if (etaSeconds <= 0) return "Estimated time: finishing...";
+    return `Estimated remaining: ${formatSegmentTimestamp(etaSeconds)}`;
+  }, [etaSeconds, progressPhase, roughAudioMinutes]);
 
   const busy =
     status === "loading" || status === "decoding" || status === "transcribing" || isCancelling;
-  const showProgressBar = progressPhase === "download" || progressPhase === "transcribing";
+  const isCompiling = status === "loading" && loadingDetail === "compiling";
+  /** True between "transcribing" status and the very first chunk_callback firing. */
+  const isWarmingUp =
+    status === "transcribing" &&
+    processedChunks === 0 &&
+    totalChunks !== null &&
+    totalChunks > 0;
+
+  // Live elapsed-seconds counter while the GPU processes the very first chunk.
+  // This is the ONLY visual proof of activity during an otherwise silent 30-90 s wait.
+  useEffect(() => {
+    if (!isWarmingUp) {
+      setWarmUpElapsed(0);
+      return;
+    }
+    setWarmUpElapsed(0);
+    const id = window.setInterval(() => setWarmUpElapsed((prev) => prev + 1), 1_000);
+    return () => window.clearInterval(id);
+  }, [isWarmingUp]);
+  const showProgressBar =
+    (progressPhase === "download" && !isCompiling) ||
+    (progressPhase === "transcribing" && !isWarmingUp);
   const showSkeleton =
     !output && (status === "loading" || status === "decoding" || status === "transcribing");
 
   const placeholderText =
     status === "loading"
-      ? "Downloading and initializing Whisper Small. This may take a moment on first run — the model is cached afterwards."
+      ? isCompiling
+        ? "Compiling WebGPU shaders for first-time setup — this takes 1–2 minutes and is fully cached afterwards."
+        : "Downloading Whisper model to your browser cache. This only happens once."
       : status === "decoding"
         ? "Decoding and resampling audio to 16kHz..."
         : status === "transcribing"
@@ -720,13 +833,13 @@ export default function Home() {
         <header className="mb-8 space-y-3">
           <p className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200">
             <ShieldCheck className="size-3.5" />
-            100% local and private
+            100% local & private
           </p>
           <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
             Client-Side Audio Transcription
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-neutral-300 sm:text-base">
-            Upload lecture or meeting audio to generate transcripts directly in your browser.
+            Upload lecture or meeting audio and generate transcripts directly in your browser.
             No server uploads, no third-party processing.
           </p>
         </header>
@@ -745,45 +858,87 @@ export default function Home() {
             ) : null}
             <span>{statusLabel(status)}</span>
           </div>
+          {activeDevice ? (
+            <span
+              className={[
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                activeDevice === "webgpu"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-orange-500/40 bg-orange-500/10 text-orange-300",
+              ].join(" ")}
+            >
+              {activeDevice === "webgpu" ? "WebGPU" : "WASM (CPU)"}
+            </span>
+          ) : null}
           <p className="text-xs text-neutral-400 sm:text-sm">
-            {activeFileName ? `Current file: ${activeFileName}` : "No file selected"}
+            {activeFileName ? `File: ${activeFileName}` : "No file selected"}
           </p>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label
-            htmlFor="language-select"
-            className="text-xs font-medium uppercase tracking-wide text-neutral-400"
-          >
+          <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">
             Language
-          </label>
-          <select
-            id="language-select"
-            value={selectedLanguage}
-            onChange={(event) => {
-              setSelectedLanguage(event.target.value as "auto" | WhisperLanguage);
-            }}
-            className="rounded-lg border border-white/10 bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-200 outline-none transition-colors focus:border-cyan-400/60"
-          >
-            {LANGUAGE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          </span>
+          <div ref={langMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setIsLangMenuOpen((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-neutral-950/80 px-3 py-1.5 text-sm text-neutral-200 outline-none transition-colors hover:border-neutral-600 focus:border-cyan-400/60"
+            >
+              <span className="text-base leading-none" style={{ fontFamily: '"TwemojiFlags", sans-serif' }}>
+                {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.flag ?? ""}
+              </span>
+              {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.label ?? selectedLanguage}
+              <ChevronDown
+                className={[
+                  "size-3.5 transition-transform",
+                  isLangMenuOpen ? "rotate-180" : "",
+                ].join(" ")}
+              />
+            </button>
+
+            {isLangMenuOpen ? (
+              <div
+                role="listbox"
+                className="absolute left-0 z-20 mt-2 w-48 rounded-lg border border-white/10 bg-neutral-900 p-1 shadow-xl"
+              >
+                {LANGUAGE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedLanguage === option.value}
+                    onClick={() => {
+                      setSelectedLanguage(option.value as "auto" | WhisperLanguage);
+                      setIsLangMenuOpen(false);
+                    }}
+                    className={[
+                      "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+                      selectedLanguage === option.value
+                        ? "bg-cyan-400/15 text-cyan-200"
+                        : "text-neutral-200 hover:bg-neutral-800",
+                    ].join(" ")}
+                  >
+                    <span className="text-base leading-none" style={{ fontFamily: '"TwemojiFlags", sans-serif' }}>{option.flag}</span>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        {showProgressBar ? (
-          <div className="mt-3 space-y-2 rounded-xl border border-white/10 bg-neutral-950/70 p-3">
-            {progressPhase === "download" ? (
-              <p className="text-xs text-amber-300/80">
-                ⬇ First run only — model will be cached in your browser after this download.
-              </p>
-            ) : null}
+        {isCompiling ? (
+          <div className="mt-3 space-y-2 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+            <p className="text-xs text-violet-300/90">
+              First-time setup — compiling WebGPU shaders. Cached after this run.
+            </p>
             <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <p className="text-xs text-neutral-300 sm:text-sm">{progressLabel}</p>
-                {etaLabel ? <p className="text-xs text-neutral-500">{etaLabel}</p> : null}
+                <p className="text-xs text-neutral-300 sm:text-sm">
+                  Preparing GPU kernels… this takes 1–2 minutes on first run.
+                </p>
+                <p className="text-xs text-neutral-500">You can leave this tab open and wait.</p>
               </div>
               <button
                 type="button"
@@ -795,12 +950,127 @@ export default function Home() {
                 {isCancelling ? "Cancelling..." : "Cancel"}
               </button>
             </div>
+            {/* Indeterminate progress bar — no granular events during shader compilation */}
+            <div className="h-2 overflow-hidden rounded-full border border-white/10 bg-neutral-900/90">
+              <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-violet-600/40 via-violet-400 to-violet-600/40 bg-[length:200%_100%]" />
+            </div>
+          </div>
+        ) : null}
+
+        {isWarmingUp ? (
+          <div className="mt-3 space-y-2.5 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+            {/* Header row */}
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-xs font-medium text-cyan-300">
+                GPU is active — processing first audio segment
+              </p>
+              <button
+                type="button"
+                onClick={cancelTranscription}
+                disabled={isCancelling}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Square className="size-3.5" />
+                {isCancelling ? "Cancelling..." : "Cancel"}
+              </button>
+            </div>
+
+            {/* Info chips row */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {/* Elapsed timer — the key "it's alive" indicator */}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 tabular-nums text-cyan-200">
+                <Clock3 className="size-3 animate-spin" style={{ animationDuration: "3s" }} />
+                {warmUpElapsed}s elapsed
+              </span>
+
+              {/* Slice badge */}
+              {totalSlices !== null && totalSlices > 1 && currentSlice !== null ? (
+                <span className="rounded-full border border-white/10 bg-neutral-800/60 px-2 py-0.5 text-neutral-300">
+                  Slice {currentSlice}/{totalSlices}
+                </span>
+              ) : null}
+
+              {/* Chunk count */}
+              {totalChunks !== null ? (
+                <span className="rounded-full border border-white/10 bg-neutral-800/60 px-2 py-0.5 text-neutral-300">
+                  0/{totalChunks} chunks
+                </span>
+              ) : null}
+
+              {/* Audio length */}
+              {roughAudioMinutes !== null ? (
+                <span className="rounded-full border border-white/10 bg-neutral-800/60 px-2 py-0.5 text-neutral-400">
+                  ~{roughAudioMinutes} min audio
+                </span>
+              ) : null}
+            </div>
+
+            {/* Explanation */}
+            <p className="text-xs leading-relaxed text-neutral-400">
+              First segment can take 30–90 s on a cold GPU.
+              If the counter is ticking, the system is working — keep this tab open.
+            </p>
+
+            {/* Shimmer activity bar */}
+            <div className="h-1.5 overflow-hidden rounded-full border border-white/10 bg-neutral-900/90">
+              <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-cyan-600/40 via-cyan-400 to-cyan-600/40 bg-[length:200%_100%]" />
+            </div>
+          </div>
+        ) : null}
+
+        {showProgressBar ? (
+          <div className="mt-3 space-y-2.5 rounded-xl border border-white/10 bg-neutral-950/70 p-3">
+            {progressPhase === "download" ? (
+              <p className="text-xs text-amber-300/80">
+                First run only — model will be cached in your browser after this download.
+              </p>
+            ) : null}
+
+            {/* ── Top row: label + cancel ─────────────────────────────────── */}
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-xs font-medium text-neutral-200 sm:text-sm">{progressLabel}</p>
+              <button
+                type="button"
+                onClick={cancelTranscription}
+                disabled={isCancelling}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Square className="size-3.5" />
+                {isCancelling ? "Cancelling..." : "Cancel"}
+              </button>
+            </div>
+
+            {/* ── Progress bar ────────────────────────────────────────────── */}
             <div className="h-2 overflow-hidden rounded-full border border-white/10 bg-neutral-900/90">
               <div
                 className="h-full rounded-full bg-cyan-400 transition-all duration-300"
                 style={{ width: `${progress}%` }}
               />
             </div>
+
+            {/* ── Slice pip track (only when there are multiple slices) ───── */}
+            {totalSlices !== null && totalSlices > 1 ? (
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalSlices }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={[
+                      "h-1 flex-1 rounded-full transition-colors duration-300",
+                      currentSlice !== null && i < currentSlice
+                        ? "bg-cyan-400"
+                        : currentSlice !== null && i === currentSlice - 1
+                          ? "bg-cyan-400/60"
+                          : "bg-neutral-700",
+                    ].join(" ")}
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            {/* ── ETA row ─────────────────────────────────────────────────── */}
+            {etaLabel ? (
+              <p className="text-xs text-neutral-500">{etaLabel}</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -1017,7 +1287,7 @@ export default function Home() {
         <div className="mt-4 rounded-lg border border-white/10 bg-neutral-950/70 px-3 py-2 text-xs text-neutral-400 sm:text-sm">
           Supports <span className="font-medium text-neutral-300">.mp3, .wav, .m4a, .mp4, .ogg</span>.
           Transcription runs in-browser with{" "}
-          <span className="font-medium text-neutral-300">Xenova/whisper-small</span>.
+          <span className="font-medium text-neutral-300">Whisper Small</span>.
         </div>
 
         {busy ? (
