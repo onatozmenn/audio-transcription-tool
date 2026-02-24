@@ -108,12 +108,6 @@ function errorMessage(error: unknown): string {
   return "Unknown worker error.";
 }
 
-function estimateChunkCount(audioLength: number): number {
-  const windowSamples = CHUNK_LENGTH_S * SAMPLE_RATE;
-  if (audioLength <= windowSamples || CHUNK_JUMP_SAMPLES <= 0) return 1;
-  return Math.ceil((audioLength - windowSamples) / CHUNK_JUMP_SAMPLES) + 1;
-}
-
 function toSafeTimestamp(value: unknown, fallback: number): number {
   if (typeof value !== "number" || Number.isNaN(value) || !Number.isFinite(value)) {
     return fallback;
@@ -380,7 +374,6 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
     // buffer via `Float32Array(audio.buffer)` → OOM on large files.
 
     const WINDOW_SAMPLES = CHUNK_LENGTH_S * SAMPLE_RATE;   // 30 s = 480 000
-    const STRIDE_SAMPLES = STRIDE_LENGTH_S * SAMPLE_RATE;  // 5 s  =  80 000
     const JUMP_SAMPLES = CHUNK_JUMP_SAMPLES;             // 20 s = 320 000
 
     // Minimum window length the model can reliably produce tokens for.

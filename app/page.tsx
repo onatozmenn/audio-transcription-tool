@@ -6,14 +6,11 @@ import {
   ChevronDown,
   Clock3,
   Copy,
-  Cpu,
   FileJson,
   Linkedin,
-  Lock,
-  Monitor,
-  ShieldCheck,
   Square,
 } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { UploadDropzone } from "@/components/upload-dropzone";
 
@@ -55,14 +52,21 @@ type TranscriptSegment = {
   end: number;
 };
 
+type TranscriptModel = "Xenova/whisper-small" | "openai/whisper-large-v3" | null;
+
 type TranscriptExportJson = {
   version: 1;
   createdAt: string;
   fileName: string | null;
-  model: "Xenova/whisper-small";
+  model: TranscriptModel;
   language: "auto" | WhisperLanguage | null;
   text: string;
   segments: TranscriptSegment[];
+};
+
+type CloudTranscribeResponse = {
+  text?: string;
+  segments?: Array<{ text: string; start: number; end: number }>;
 };
 
 type WorkerResponse =
@@ -107,6 +111,161 @@ const LOCAL_AUDIO_STEP_S = LOCAL_CHUNK_LENGTH_S - 2 * LOCAL_STRIDE_LENGTH_S;
 const CLOUD_CHUNK_DURATION_S = 60;
 const MAX_CLOUD_DIRECT_UPLOAD_BYTES = 3 * 1024 * 1024;
 const MAX_CLOUD_CHUNK_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_MOBILE_DECODE_FILE_BYTES = 40 * 1024 * 1024;
+const APP_URL = "https://audio-transcription.app";
+const APP_URL_TR = `${APP_URL}/tr`;
+
+const FAQ_JSON_LD_EN = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: [
+    {
+      "@type": "Question",
+      name: "How can I transcribe MP3 to text for free?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Upload your MP3 file, choose language, and start transcription. The tool converts audio to text online for free without sign-up.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Do I need an account to use this speech to text tool?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "No. You can transcribe audio without creating an account.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Which audio formats are supported?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Supported formats include MP3, WAV, M4A, MP4, OGG, FLAC, AAC, WEBM, and OPUS.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Is my audio private during transcription?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "On desktop, transcription runs locally in your browser. On mobile, audio is sent through secure cloud processing and returned as text.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Can I generate subtitle-ready transcripts?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Yes. You can export transcript text and timestamped output for subtitle and notes workflows.",
+      },
+    },
+  ],
+};
+
+const HOW_TO_JSON_LD_EN = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "How to convert audio to text online",
+  description:
+    "Convert audio files to text in minutes using this free speech-to-text tool.",
+  totalTime: "PT5M",
+  step: [
+    {
+      "@type": "HowToStep",
+      name: "Upload audio file",
+      text: "Upload MP3, WAV, M4A, MP4, or another supported audio format.",
+      url: `${APP_URL}/#upload-section`,
+    },
+    {
+      "@type": "HowToStep",
+      name: "Select language and start transcription",
+      text: "Choose the spoken language and begin audio-to-text transcription.",
+      url: `${APP_URL}/#upload-section`,
+    },
+    {
+      "@type": "HowToStep",
+      name: "Copy or export transcript",
+      text: "Review transcript output, then copy plain text, timestamped text, or export JSON.",
+      url: APP_URL,
+    },
+  ],
+};
+
+const FAQ_JSON_LD_TR = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: [
+    {
+      "@type": "Question",
+      name: "MP3 dosyasını ücretsiz metne nasıl çevirebilirim?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "MP3 dosyanızı yükleyin, dili seçin ve transkripsiyonu başlatın. Araç sesi ücretsiz olarak metne çevirir ve üyelik gerektirmez.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Bu konuşmayı yazıya çevirme aracı için hesap gerekiyor mu?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Hayır. Hesap oluşturmadan ses dosyalarını metne çevirebilirsiniz.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Hangi ses formatları destekleniyor?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "MP3, WAV, M4A, MP4, OGG, FLAC, AAC, WEBM ve OPUS formatları desteklenir.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Transkripsiyon sırasında ses verim gizli kalır mı?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Masaüstünde işlem tarayıcınızda yerel olarak yapılır. Mobilde ses güvenli bulut işleme ile metne çevrilir ve sonuç size döner.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Altyazı için kullanılabilecek çıktı alabilir miyim?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Evet. Düz metin ve zaman damgalı transcript çıktıları ile altyazı ve not alma süreçlerini destekler.",
+      },
+    },
+  ],
+};
+
+const HOW_TO_JSON_LD_TR = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "Sesi çevrim içi metne çevirme adımları",
+  description:
+    "Bu ücretsiz konuşmayı yazıya çevirme aracıyla ses dosyalarını dakikalar içinde metne dönüştürün.",
+  totalTime: "PT5M",
+  step: [
+    {
+      "@type": "HowToStep",
+      name: "Ses dosyasını yükle",
+      text: "MP3, WAV, M4A, MP4 veya desteklenen başka bir ses formatını yükleyin.",
+      url: `${APP_URL_TR}/#upload-section`,
+    },
+    {
+      "@type": "HowToStep",
+      name: "Dili seç ve transkripsiyonu başlat",
+      text: "Konuşma dilini seçin ve sesi metne çevirme işlemini başlatın.",
+      url: `${APP_URL_TR}/#upload-section`,
+    },
+    {
+      "@type": "HowToStep",
+      name: "Transcript çıktısını kopyala veya dışa aktar",
+      text: "Çıktıyı kontrol edin, ardından düz metin, zaman damgalı metin veya JSON dışa aktarın.",
+      url: APP_URL_TR,
+    },
+  ],
+};
 
 function clampProgress(value: number): number {
   return Math.max(0, Math.min(100, value));
@@ -288,6 +447,8 @@ function formatSegmentTimestamp(seconds: number): string {
 }
 
 export default function Home() {
+  const pathname = usePathname();
+  const isTurkishPage = pathname === "/tr" || pathname.startsWith("/tr/");
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef(0);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -320,13 +481,12 @@ export default function Home() {
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"plain" | "timestamps">("plain");
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
-  const [activeDevice, setActiveDevice] = useState<"webgpu" | "wasm" | null>(null);
+  const [lastTranscriptionModel, setLastTranscriptionModel] = useState<TranscriptModel>(null);
   const [currentSlice, setCurrentSlice] = useState<number | null>(null);
   const [totalSlices, setTotalSlices] = useState<number | null>(null);
   const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null);
   const [warmUpElapsed, setWarmUpElapsed] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
-  const [gpuSupported, setGpuSupported] = useState(true);
   const [isViaCloud, setIsViaCloud] = useState(false);
   // True if the model was successfully loaded in a previous session.
   // Stored in localStorage so page refresh doesn't re-show the loading UI.
@@ -334,8 +494,6 @@ export default function Home() {
 
   useEffect(() => {
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
-    setGpuSupported("gpu" in navigator);
-    // Check if model was loaded in a previous browser session.
     if (typeof window !== "undefined" && localStorage.getItem("whisper_model_cached") === "1") {
       setWasModelEverLoaded(true);
     }
@@ -401,17 +559,14 @@ export default function Home() {
         if (message.status === "loading") {
           setStatus("loading");
           if (message.detail) setLoadingDetail(message.detail);
-          if (message.device) setActiveDevice(message.device as "webgpu" | "wasm");
         } else if (message.status === "transcribing") {
           setStatus("transcribing");
           setLoadingDetail(null);
           setProgress(0);
           setProgressPhase("transcribing");
-          if (message.device) setActiveDevice(message.device as "webgpu" | "wasm");
         } else if (message.status === "ready") {
           setStatus("ready");
           setLoadingDetail(null);
-          if (message.device) setActiveDevice(message.device as "webgpu" | "wasm");
           setProgressPhase(null);
           setProcessedChunks(null);
           setTotalChunks(null);
@@ -603,7 +758,7 @@ export default function Home() {
     window.setTimeout(() => {
       setIsCancelling(false);
     }, 300);
-  }, [clearProgressState, initializeWorker, selectedLanguage, status]);
+  }, [clearProgressState, initializeWorker, isViaCloud, selectedLanguage, status]);
 
   useEffect(() => {
     initializeWorker();
@@ -735,10 +890,12 @@ export default function Home() {
       setCopyFeedback(null);
       setIsExportMenuOpen(false);
       setError(null);
+      setLastTranscriptionModel(null);
       clearProgressState();
 
       if (isMobile) {
         setIsViaCloud(true);
+        setLastTranscriptionModel("openai/whisper-large-v3");
         setStatus("transcribing");
         setProgressPhase("transcribing");
         setLoadingDetail("Uploading to Cloud...");
@@ -748,7 +905,10 @@ export default function Home() {
         abortControllerRef.current = controller;
 
         try {
-          const transcribeCloudBlob = async (blob: Blob, chunkFileName: string) => {
+          const transcribeCloudBlob = async (
+            blob: Blob,
+            chunkFileName: string,
+          ): Promise<CloudTranscribeResponse> => {
             const formData = new FormData();
             formData.append("file", blob, chunkFileName);
             if (selectedLanguage && selectedLanguage !== "auto") {
@@ -767,25 +927,34 @@ export default function Home() {
               throw new Error(`HTTP ${response.status}: ${apiError}`);
             }
 
-            return response.json();
+            return (await response.json()) as CloudTranscribeResponse;
           };
 
           // Vercel serverless functions have a ~4.5 MB request body limit.
-          // Files above 3 MB are decoded locally and uploaded as 16 kHz mono WAV chunks.
-          let chunksToProcess: { blob: Blob; offsetS: number }[] = [];
+          // For larger files, decode once and upload chunk-by-chunk to avoid
+          // keeping all encoded WAV chunks in memory at the same time.
+          let totalCloudChunks = 1;
+          let decodedAudioData: Float32Array | null = null;
+          let decodedAudioSampleRate = TARGET_SAMPLE_RATE;
+          let samplesPerChunk = 0;
 
           if (file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES) {
-            chunksToProcess = [{ blob: file, offsetS: 0 }];
-            setTotalChunks(1);
             void getAudioDurationSeconds(file).then((duration) => {
               if (requestId !== activeRequestIdRef.current) return;
               if (duration === null) return;
               setAudioDurationSeconds(Math.max(1, Math.round(duration)));
             });
           } else {
+            if (file.size > MAX_MOBILE_DECODE_FILE_BYTES) {
+              throw new Error(
+                "This file is too large for reliable mobile processing. Please use desktop for very long recordings.",
+              );
+            }
+
             setLoadingDetail("Preparing audio for upload...");
             setStatus("decoding"); // visually update
             const { samples: audioData, sampleRate } = await decodeAudioFileForCloudChunking(file);
+            if (requestId !== activeRequestIdRef.current) return;
 
             setStatus("transcribing"); // back to transcribing
             setAudioDurationSeconds(Math.max(1, Math.round(audioData.length / sampleRate)));
@@ -796,39 +965,52 @@ export default function Home() {
               1,
               Math.floor((MAX_CLOUD_CHUNK_UPLOAD_BYTES - 44) / 2),
             );
-            const samplesPerChunk = Math.max(
+            samplesPerChunk = Math.max(
               1,
               Math.min(desiredSamplesPerChunk, maxSamplesPerChunk),
             );
-
-            for (let i = 0; i < audioData.length; i += samplesPerChunk) {
-              const chunkData = audioData.slice(i, i + samplesPerChunk);
-              const wavBlob = encodeWAV(chunkData, sampleRate);
-              chunksToProcess.push({ blob: wavBlob, offsetS: i / sampleRate });
-            }
-            setTotalChunks(chunksToProcess.length);
+            decodedAudioData = audioData;
+            decodedAudioSampleRate = sampleRate;
+            totalCloudChunks = Math.max(1, Math.ceil(audioData.length / samplesPerChunk));
           }
+          setTotalChunks(totalCloudChunks);
 
           let combinedText = "";
           const combinedSegments: TranscriptSegment[] = [];
 
-          for (let i = 0; i < chunksToProcess.length; i++) {
+          for (let i = 0; i < totalCloudChunks; i++) {
             if (abortControllerRef.current?.signal.aborted) break;
 
-            const { blob, offsetS } = chunksToProcess[i];
-            setLoadingDetail(`Uploading chunk ${i + 1} of ${chunksToProcess.length}...`);
+            const isChunkedUpload = decodedAudioData !== null;
+            let uploadBlob = file as Blob;
+            let offsetS = 0;
+            let uploadName = file.name;
+
+            if (isChunkedUpload && decodedAudioData) {
+              const chunkStartSample = i * samplesPerChunk;
+              const chunkData = decodedAudioData.slice(chunkStartSample, chunkStartSample + samplesPerChunk);
+              uploadBlob = encodeWAV(chunkData, decodedAudioSampleRate);
+              offsetS = chunkStartSample / decodedAudioSampleRate;
+              uploadName = `chunk-${i}.wav`;
+            }
+
+            setLoadingDetail(
+              totalCloudChunks > 1
+                ? `Uploading chunk ${i + 1} of ${totalCloudChunks}...`
+                : "Uploading audio...",
+            );
             setProcessedChunks(i);
-            setProgress((i / chunksToProcess.length) * 100);
+            setProgress((i / totalCloudChunks) * 100);
 
             if (requestId !== activeRequestIdRef.current) return;
 
-            const result = await transcribeCloudBlob(blob, `chunk-${i}.wav`);
+            const result = await transcribeCloudBlob(uploadBlob, uploadName);
             setProcessedChunks(i + 1);
-            setProgress(((i + 1) / chunksToProcess.length) * 100);
+            setProgress(((i + 1) / totalCloudChunks) * 100);
 
             combinedText += (combinedText ? " " : "") + (result.text || "").trim();
 
-            if (result.segments) {
+            if (Array.isArray(result.segments)) {
               for (const seg of result.segments) {
                 combinedSegments.push({
                   text: seg.text,
@@ -843,7 +1025,7 @@ export default function Home() {
           if (requestId !== activeRequestIdRef.current) return;
 
           setProgress(100);
-          setProcessedChunks(chunksToProcess.length);
+          setProcessedChunks(totalCloudChunks);
           setOutput(combinedText);
           setSegments(combinedSegments);
           setStatus("ready");
@@ -863,6 +1045,7 @@ export default function Home() {
       }
 
       setStatus("decoding");
+      setLastTranscriptionModel("Xenova/whisper-small");
 
       try {
         const audioData = await decodeAudioFile(file);
@@ -926,12 +1109,12 @@ export default function Home() {
       version: 1,
       createdAt: new Date().toISOString(),
       fileName: activeFileName ?? null,
-      model: "Xenova/whisper-small",
+      model: lastTranscriptionModel,
       language: selectedLanguage,
       text: output,
       segments,
     };
-  }, [activeFileName, output, segments, selectedLanguage]);
+  }, [activeFileName, lastTranscriptionModel, output, segments, selectedLanguage]);
 
   const triggerDownload = useCallback((content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -1119,15 +1302,16 @@ export default function Home() {
     isMobile ||
     (wasModelEverLoaded && status === "loading" && !isActuallyDownloading);
   const isCompiling = status === "loading" && loadingDetail === "compiling";
-  /** True between "transcribing" status and the very first chunk_callback firing. */
+  /** True while local (desktop) transcription warms up before first chunk callback. */
   const isWarmingUp =
     !isMobile &&
+    !isViaCloud &&
     status === "transcribing" &&
     processedChunks === 0 &&
     totalChunks !== null &&
     totalChunks > 0;
 
-  // Live elapsed-seconds counter while the GPU processes the very first chunk.
+  // Live elapsed-seconds counter while local processing handles the first chunk.
   // This is the ONLY visual proof of activity during an otherwise silent 30-90 s wait.
   useEffect(() => {
     if (!isWarmingUp) {
@@ -1141,36 +1325,32 @@ export default function Home() {
   const showProgressBar = progressPhase === "transcribing" && !isWarmingUp;
   const showSkeleton =
     !output && (status === "loading" || status === "decoding" || status === "transcribing");
-
-  const placeholderText =
-    status === "loading"
-      ? isCompiling
-        ? "Compiling WebGPU shaders for first-time setup — this takes 1–2 minutes and is fully cached afterwards."
-        : "Downloading Whisper model to your browser cache. This only happens once."
-      : status === "decoding"
-        ? "Decoding and resampling audio to 16kHz..."
-        : status === "transcribing"
-          ? "Analyzing audio and generating transcript..."
-          : status === "error"
-            ? "Transcription failed. Please try another file."
-            : "Upload audio to start a local transcription.";
+  const structuredDataJson = useMemo(
+    () =>
+      JSON.stringify(
+        isTurkishPage
+          ? [FAQ_JSON_LD_TR, HOW_TO_JSON_LD_TR]
+          : [FAQ_JSON_LD_EN, HOW_TO_JSON_LD_EN],
+      ),
+    [isTurkishPage],
+  );
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-3 py-6 sm:px-6 sm:py-10">
 
-      <section className="relative w-full max-w-4xl rounded-2xl border border-white/10 bg-neutral-900/70 p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-sm sm:p-8">
-        <header className="mb-8 space-y-3">
+      <section className="relative w-full max-w-4xl rounded-2xl border border-white/10 bg-neutral-900/70 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-sm sm:p-8">
+        <header className="mb-6 space-y-2.5 sm:mb-8 sm:space-y-3">
 
-          <div className="flex items-center gap-4">
-            <svg width="52" height="52" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <svg width="52" height="52" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="mt-5 size-10 shrink-0 sm:mt-8 sm:size-[52px]">
               <rect x="4" y="12" width="2" height="8" rx="1" fill="white" className="fill-white" />
               <rect x="8" y="6" width="2" height="20" rx="1" fill="white" className="fill-white" />
               <rect x="12" y="10" width="2" height="12" rx="1" fill="white" className="fill-white" />
               <rect x="18" y="14" width="10" height="2" rx="1" fill="white" className="fill-white" />
               <rect x="18" y="18" width="7" height="2" rx="1" fill="white" className="fill-white" />
             </svg>
-            <div>
-              <div className="mb-1.5 flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="mb-2 -ml-2 flex flex-wrap items-center gap-1.5 sm:-ml-16 sm:mb-1.5 sm:gap-2">
                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-300">
                   <svg xmlns="http://www.w3.org/2000/svg" height="11px" viewBox="0 -960 960 960" width="11px" fill="currentColor"><path d="m382-354 339-339q12-12 28-12t28 12q12 12 12 28.5T777-636L410-268q-12 12-28 12t-28-12L182-440q-12-12-11.5-28.5T183-497q12-12 28.5-12t28.5 12l142 143Z" /></svg>
                   100% Free
@@ -1179,15 +1359,18 @@ export default function Home() {
                   No sign-up required
                 </span>
               </div>
-              <h1 className="text-3xl font-bold tracking-tight text-white sm:text-5xl">
-                Audio Transcription Tool
+              <h1 className="text-2xl font-bold tracking-tight text-white sm:text-5xl">
+                Free Audio Transcription Tool (Speech to Text Online)
               </h1>
             </div>
           </div>
           <p className="max-w-2xl text-sm leading-6 text-neutral-300 sm:text-base">
-            Free audio-to-text transcription powered by Whisper AI — runs directly in your browser.
-            {isMobile ? " Secure cloud processing for mobile devices." : " No server uploads, no accounts, no limits."}
+            Convert audio to text online for free using Whisper AI. Transcribe MP3, WAV, M4A and
+            more. Desktop runs locally; mobile uses secure cloud transcription. No sign-up.
           </p>
+          <h2 className="text-base font-semibold text-neutral-200 sm:text-xl">
+            Audio to Text Converter (MP3, WAV, M4A) — Free & Private
+          </h2>
         </header>
 
         {/* Info panel */}
@@ -1195,44 +1378,38 @@ export default function Home() {
           <div className="flex flex-1 flex-col p-5">
             <div className="mb-3 flex items-center gap-2 text-neutral-300">
               <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M320-240q-33 0-56.5-23.5T240-320v-320q0-33 23.5-56.5T320-720h320q33 0 56.5 23.5T720-640v320q0 33-23.5 56.5T640-240H320Zm0-80h320v-320H320v320Zm-80 40v-80h-80v-80h80v-80h-80v-80h80v-80h-80v-80h80v-80h80v80h80v-80h80v80h80v-80h80v80h80v80h-80v80h80v80h-80v80h80v80h-80v80h-80v-80h-80v80h-80v-80h-80v80h-80Zm160-240h160v-160H400v160Zm0-80h160v-160H400v160Z" /></svg>
-              <h3 className="text-sm font-medium text-neutral-200">{isMobile ? "Hybrid Intelligence" : "Runs in your browser"}</h3>
+              <h3 className="text-sm font-medium text-neutral-200">Audio to Text Transcription</h3>
             </div>
             <p className="text-xs leading-relaxed text-neutral-400">
-              {isMobile
-                ? "Switching seamlessly between on-device decoding and cloud transcription for the best mobile experience."
-                : "Powered by Whisper Small via WebGPU. No internet connection required after the initial model load."}
+              Transcribe audio files to text instantly using Whisper AI.
             </p>
           </div>
 
           <div className="flex flex-1 flex-col p-5">
             <div className="mb-3 flex items-center gap-2 text-neutral-300">
               <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm240-120q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80ZM240-160v-400 400Z" /></svg>
-              <h3 className="text-sm font-medium text-neutral-200">{isMobile ? "Privacy Conscious" : "Zero data leaves device"}</h3>
+              <h3 className="text-sm font-medium text-neutral-200">Private Audio Transcription</h3>
             </div>
             <p className="text-xs leading-relaxed text-neutral-400">
-              {isMobile
-                ? "Audio is securely sent to Groq Cloud for processing and deleted immediately. No personal data is stored."
-                : "Your audio is never uploaded to any server. Everything is processed locally with no tracking or storage."}
+              Desktop runs locally. On mobile, audio is processed securely. No storage or tracking.
             </p>
           </div>
 
           <div className="flex flex-1 flex-col p-5">
             <div className={[
-              "mb-3 flex items-center gap-2",
+              "mb-3 flex items-start gap-2",
               isMobile ? "text-cyan-400" : "text-neutral-300"
             ].join(" ")}>
-              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M320-120v-80H160q-33 0-56.5-23.5T80-280v-480q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v480q0 33-23.5 56.5T800-200H640v80H320ZM160-280h640v-480H160v480Zm0 0v-480 480Z" /></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor" className="mt-0.5 shrink-0"><path d="M320-120v-80H160q-33 0-56.5-23.5T80-280v-480q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v480q0 33-23.5 56.5T800-200H640v80H320ZM160-280h640v-480H160v480Zm0 0v-480 480Z" /></svg>
               <h3 className={[
                 "text-sm font-medium",
                 isMobile ? "text-cyan-200" : "text-neutral-200"
               ].join(" ")}>
-                {isMobile ? "Works great on mobile" : "Works on desktop & mobile"}
+                Upload Any Audio File
               </h3>
             </div>
             <p className="text-xs leading-relaxed text-neutral-400">
-              {isMobile
-                ? "Full transcription support via Groq Cloud — fast, accurate, and battery friendly."
-                : "Use Chrome or Edge on desktop for local WebGPU processing. On mobile, Groq Cloud handles everything automatically."}
+              Supports MP3, WAV, M4A and more. Convert audio to text in seconds.
             </p>
           </div>
         </div>
@@ -1250,7 +1427,7 @@ export default function Home() {
               type="button"
               onClick={() => setIsLangMenuOpen((prev) => !prev)}
               className={[
-                "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors",
+                "inline-flex max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium outline-none transition-colors",
                 selectedLanguage
                   ? "border-cyan-400/40 bg-cyan-400/5 text-neutral-200 hover:bg-cyan-400/10"
                   : "border-dashed border-white/20 bg-neutral-900/60 text-neutral-400 hover:border-white/40 hover:text-neutral-200",
@@ -1280,7 +1457,7 @@ export default function Home() {
             {isLangMenuOpen ? (
               <div
                 role="listbox"
-                className="absolute left-0 z-20 mt-2 w-48 rounded-lg border border-white/10 bg-neutral-900 p-1 shadow-xl"
+                className="absolute left-0 z-20 mt-2 w-56 max-w-[calc(100vw-2.5rem)] rounded-lg border border-white/10 bg-neutral-900 p-1 shadow-xl"
               >
                 {LANGUAGE_OPTIONS.map((option) => (
                   <button
@@ -1308,24 +1485,27 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Step 2 — Load AI model (hidden once ready) */}
+        {/* Step 2 — Load model (hidden once ready) */}
         {!modelReady && (
           <div
             className={["mb-4", isModelShaking ? "model-shake" : ""].join(" ")}
             onAnimationEnd={() => setIsModelShaking(false)}
           >
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
-              Step 2 — Load AI model
+              Step 2 — Load Transcription Model
+            </p>
+            <p className="mb-2 text-xs text-neutral-500">
+              The model loads automatically after selecting a language.
             </p>
             {!selectedLanguage ? (
               <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-neutral-900/80 px-3.5 py-2.5 opacity-50">
                 <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm240-120q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM480-640h160v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80Zm-240 480v-400 400Z" /></svg>
-                <span className="text-sm text-neutral-400">Select a language first</span>
+                <span className="text-sm text-neutral-400">Select a language to start model loading</span>
               </div>
             ) : isCompiling ? (
               <div className="space-y-2 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
                 <p className="text-xs text-violet-300/90">First-time setup — compiling WebGPU shaders. Cached after this run.</p>
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="space-y-0.5">
                     <p className="text-xs text-neutral-300 sm:text-sm">Preparing GPU kernels… this takes 1–2 minutes on first run.</p>
                     <p className="text-xs text-neutral-500">You can leave this tab open and wait.</p>
@@ -1346,7 +1526,7 @@ export default function Home() {
               </div>
             ) : progressPhase === "download" ? (
               <div className="space-y-2.5 rounded-xl border border-white/10 bg-neutral-950/70 p-3">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs font-medium text-neutral-200 sm:text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>{progressLabel}</p>
                   <button
                     type="button"
@@ -1381,57 +1561,62 @@ export default function Home() {
         )}
 
         {/* Step 2/3 — Upload */}
-        {uploadBusy ? (
-          /* While processing: hide the full dropzone, show only the compact file row */
-          <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
-              {modelReady ? "Step 2" : "Step 3"} — Upload your audio file
-            </p>
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-neutral-900/80 px-3.5 py-2.5">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M560-360v-240l80 80 56-56-160-160-160 160 56 56 80-80v240h48Zm-80 200q-83 0-141.5-58.5T280-360v-400h400v400q0 83-58.5 141.5T480-160Zm0-80q50 0 85-35t35-85v-320H360v320q0 50 35 85t85 35ZM200-80q-33 0-56.5-23.5T120-160v-520h80v520h520v80H200Zm280-440Z" /></svg>
-                <span className="truncate text-sm text-neutral-200">{activeFileName}</span>
-              </div>
-              <span className="shrink-0 text-xs text-neutral-500">Processing…</span>
-            </div>
-          </div>
-        ) : (
-          <div className="relative">
-            <div className={(!selectedLanguage || !modelReady) ? "pointer-events-none opacity-40" : ""}>
+        <div id="upload-section" className="scroll-mt-24">
+          {uploadBusy ? (
+            /* While processing: hide the full dropzone, show only the compact file row */
+            <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
                 {modelReady ? "Step 2" : "Step 3"} — Upload your audio file
               </p>
-              <UploadDropzone onFileSelected={handleFileSelected} />
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-neutral-900/80 px-3.5 py-2.5 sm:gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M560-360v-240l80 80 56-56-160-160-160 160 56 56 80-80v240h48Zm-80 200q-83 0-141.5-58.5T280-360v-400h400v400q0 83-58.5 141.5T480-160Zm0-80q50 0 85-35t35-85v-320H360v320q0 50 35 85t85 35ZM200-80q-33 0-56.5-23.5T120-160v-520h80v520h520v80H200Zm280-440Z" /></svg>
+                  <span className="truncate text-sm text-neutral-200">{activeFileName}</span>
+                </div>
+                <span className="shrink-0 text-xs text-neutral-500 sm:ml-auto">Processing…</span>
+              </div>
             </div>
-            {(!selectedLanguage || !modelReady) && (
-              <div
-                className="absolute inset-0 cursor-pointer"
-                onClick={() => {
-                  if (!selectedLanguage) { setIsLangShaking(true); setIsLangMenuOpen(true); }
-                  if (!modelReady) { setIsModelShaking(true); }
-                }}
-              />
-            )}
-          </div>
-        )}
+          ) : (
+            <div className="relative">
+              <div className={(!selectedLanguage || !modelReady) ? "pointer-events-none opacity-40" : ""}>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
+                  {modelReady ? "Step 2" : "Step 3"} — Upload your audio file
+                </p>
+                <UploadDropzone onFileSelected={handleFileSelected} />
+              </div>
+              {(!selectedLanguage || !modelReady) && (
+                <div
+                  className="absolute inset-0 cursor-pointer"
+                  onClick={() => {
+                    if (!selectedLanguage) { setIsLangShaking(true); setIsLangMenuOpen(true); }
+                    if (!modelReady) { setIsModelShaking(true); }
+                  }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+        <p className="mt-1 text-[11px] text-neutral-500">
+          Transcribe audio files online for free • No sign-up • Supports MP3, WAV, M4A
+        </p>
 
         {isWarmingUp ? (
           <div className="mt-3 rounded-xl border border-cyan-500/20 bg-neutral-950/60 p-4 shadow-inner">
             {/* Header row */}
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="space-y-0.5">
                 <p className="text-sm font-semibold text-neutral-100">
                   Transcription in progress
                 </p>
                 <p className="text-xs text-neutral-400">
-                  Initial segment processing — the GPU is warming up. This takes 30–90 s the first time.
+                  Initial segment processing — local transcription engine is warming up. This takes 30–90 s the first time.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={cancelTranscription}
                 disabled={isCancelling}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 self-start rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60 sm:shrink-0"
               >
                 <Square className="size-3.5" />
                 {isCancelling ? "Cancelling…" : "Cancel"}
@@ -1478,7 +1663,7 @@ export default function Home() {
         {showProgressBar ? (
           <div className="mt-3 space-y-2.5 rounded-xl border border-white/10 bg-neutral-950/70 p-3">
             {/* ── Top row: label + cancel ─────────────────────────────────── */}
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs font-medium text-neutral-200 sm:text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>{progressLabel}</p>
               <button
                 type="button"
@@ -1526,7 +1711,7 @@ export default function Home() {
         ) : null}
 
         {status === "decoding" && !showProgressBar ? (
-          <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-neutral-950/70 p-3">
+          <div className="mt-3 flex flex-col gap-2 rounded-xl border border-white/10 bg-neutral-950/70 p-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-neutral-300 sm:text-sm">Decoding audio...</p>
             <button
               type="button"
@@ -1549,20 +1734,25 @@ export default function Home() {
 
         <div className={["mt-4 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/75", justCompleted ? "transcript-flash" : ""].join(" ")}>
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2">
-            <div className="flex items-center gap-3">
-              <p className="text-sm font-medium text-neutral-200">Transcript Output</p>
+            <div className="flex min-w-0 flex-wrap items-start gap-2 sm:gap-3">
+              <div className="flex flex-col">
+                <p className="text-[11px] text-neutral-500">
+                  Convert audio to text and generate transcripts or subtitles instantly.
+                </p>
+                <p className="text-sm font-medium text-neutral-200">Audio to Text Transcript</p>
+              </div>
               {output ? (
                 <span className="text-xs text-neutral-500">
                   {output.trim().split(/\s+/).filter(Boolean).length} words
                 </span>
               ) : null}
               {segments.length > 0 ? (
-                <div className="flex items-center rounded-md border border-white/10 bg-neutral-900 p-0.5">
+                <div className="flex w-full items-center rounded-md border border-white/10 bg-neutral-900 p-0.5 sm:w-auto">
                   <button
                     type="button"
                     onClick={() => setViewMode("plain")}
                     className={[
-                      "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                      "flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors sm:flex-none sm:px-2.5 sm:text-xs",
                       viewMode === "plain"
                         ? "bg-cyan-400/15 text-cyan-200"
                         : "text-neutral-400 hover:text-neutral-200",
@@ -1574,7 +1764,7 @@ export default function Home() {
                     type="button"
                     onClick={() => setViewMode("timestamps")}
                     className={[
-                      "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                      "flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors sm:flex-none sm:px-2.5 sm:text-xs",
                       viewMode === "timestamps"
                         ? "bg-cyan-400/15 text-cyan-200"
                         : "text-neutral-400 hover:text-neutral-200",
@@ -1585,12 +1775,14 @@ export default function Home() {
                 </div>
               ) : null}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
               <div ref={exportMenuRef} className="relative">
                 <button
                   type="button"
                   onClick={() => setIsExportMenuOpen((prev) => !prev)}
                   disabled={!hasExportContent}
+                  title="Export transcript as TXT or SRT subtitles"
+                  aria-label="Export transcript as TXT or SRT subtitles"
                   aria-haspopup="menu"
                   aria-expanded={isExportMenuOpen}
                   className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-neutral-200 transition-colors hover:border-cyan-400/40 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1674,7 +1866,7 @@ export default function Home() {
                   {segments.map((segment, index) => (
                     <li
                       key={`${segment.start}-${segment.end}-${index}`}
-                      className="grid grid-cols-[80px_1fr] gap-3 px-3 py-2.5"
+                      className="grid grid-cols-[64px_1fr] gap-2.5 px-3 py-2.5 sm:grid-cols-[80px_1fr] sm:gap-3"
                     >
                       <span className="pt-0.5 text-xs text-neutral-500">
                         [{formatSegmentTimestamp(segment.start)}]
@@ -1757,13 +1949,10 @@ export default function Home() {
         ) : null}
 
         <div className="mt-4 rounded-lg border border-white/10 bg-neutral-950/70 px-3 py-2 text-xs text-neutral-400 sm:text-sm">
-          Supports <span className="font-medium text-neutral-300">.mp3, .wav, .m4a, .mp4, .ogg, .flac, .aac, .webm, .opus</span>.
-          Transcription runs in-browser with{" "}
-          <span className="font-medium text-neutral-300">Whisper Small</span>
-          {isMobile ? <span> (on <span className="font-medium text-neutral-300">Groq API Whisper Large V3</span> via mobile fallback).</span> : "."}
+          Supports MP3, WAV, M4A, MP4, OGG, FLAC, AAC, WEBM, OPUS • Desktop: in-browser transcription • Mobile: secure processing
           <br />
-          <span className="mt-1 block text-amber-500/80">
-            Do not refresh the page during transcription, or your progress will be lost.
+          <span className="mt-1 block text-neutral-500">
+            Progress is saved in this browser tab.
           </span>
         </div>
 
@@ -1773,19 +1962,19 @@ export default function Home() {
           </p>
         ) : null}
 
-        <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-5">
+        <div className="mt-6 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-neutral-500">
             Developed by{" "}
             <span className="font-medium text-neutral-300">Onat Özmen</span>
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <a
               href="/privacy"
               className="text-sm text-neutral-500 transition-colors hover:text-neutral-300"
             >
               Privacy Policy
             </a>
-            <span className="text-neutral-700">·</span>
+            <span className="hidden text-neutral-700 sm:inline">·</span>
             <a
               href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
               target="_blank"
@@ -1797,31 +1986,17 @@ export default function Home() {
             </a>
           </div>
         </div>
+        <p className="mt-2 text-xs text-neutral-500">
+          Free audio transcription tool powered by Whisper AI. Convert audio to text online instantly.
+        </p>
+        <p className="mt-1 text-xs text-neutral-500">
+          Supports speech to text, audio transcription, and subtitle generation.
+        </p>
       </section>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "WebApplication",
-            "name": "Audio Transcription Tool",
-            "description": "Free, private, and 100% client-side audio transcription tool. Transcribe audio directly in your browser.",
-            "applicationCategory": "MultimediaApplication",
-            "operatingSystem": "Any",
-            "offers": {
-              "@type": "Offer",
-              "price": "0",
-              "priceCurrency": "USD"
-            },
-            "featureList": [
-              "100% Client-side processing on Desktop",
-              "Blazing fast Cloud processing on Mobile",
-              "Privacy first - minimal data processing",
-              "Supports multiple audio formats",
-              "High accuracy with Whisper Small & Large V3",
-              "Free to use"
-            ]
-          })
+          __html: structuredDataJson,
         }}
       />
     </main>

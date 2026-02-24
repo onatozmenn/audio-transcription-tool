@@ -93,7 +93,7 @@ export function UploadDropzone({ onFileSelected }: UploadDropzoneProps) {
           handleFile(file);
         }}
         className={[
-          "group relative flex min-h-64 w-full cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border border-dashed p-8 text-center outline-none transition-all duration-200 ease-out",
+          "group relative flex min-h-52 w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-5 text-center outline-none transition-all duration-200 ease-out sm:min-h-64 sm:gap-4 sm:p-8",
           "hover:border-neutral-500/80 hover:bg-neutral-800/60 focus-visible:ring-2 focus-visible:ring-cyan-400/60",
           isDragging
             ? "scale-[1.01] border-cyan-400/80 bg-cyan-400/10 shadow-[0_0_0_1px_rgba(34,211,238,0.25),0_0_40px_rgba(34,211,238,0.15)]"
@@ -103,7 +103,7 @@ export function UploadDropzone({ onFileSelected }: UploadDropzoneProps) {
       >
         <div
           className={[
-            "rounded-full border p-3 transition-colors",
+            "rounded-full border p-2.5 transition-colors sm:p-3",
             isDragging
               ? "border-cyan-300/70 bg-cyan-300/15 text-cyan-200"
               : "border-neutral-700 bg-neutral-800 text-neutral-300 group-hover:border-neutral-500",
@@ -113,15 +113,16 @@ export function UploadDropzone({ onFileSelected }: UploadDropzoneProps) {
         </div>
 
         <div className="space-y-2">
-          <p className="text-base font-medium text-neutral-100">
-            {isDragging ? "Drop your audio file here" : "Drag and drop audio to upload"}
+          <p className="text-sm font-medium text-neutral-100 sm:text-base">
+            {isDragging ? "Drop your audio file here" : "Upload audio file to transcribe (MP3, WAV, M4A)"}
           </p>
+          <p className="text-[11px] text-neutral-500 sm:text-xs">Convert audio to text instantly</p>
           <p className="text-sm text-neutral-400">
             or <span className="text-cyan-300">browse from your device</span>
           </p>
         </div>
 
-        <p className="text-xs text-neutral-500">Accepted formats: .mp3, .wav, .m4a, .mp4, .ogg, .flac, .aac, .webm, .opus</p>
+        <p className="text-[11px] text-neutral-500 sm:text-xs">Accepted formats: .mp3, .wav, .m4a, .mp4, .ogg, .flac, .aac, .webm, .opus</p>
       </div>
 
       {error ? (
@@ -132,12 +133,12 @@ export function UploadDropzone({ onFileSelected }: UploadDropzoneProps) {
       ) : null}
 
       {selectedFile ? (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-neutral-900/80 px-3.5 py-2.5">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-neutral-900/80 px-3.5 py-2.5 sm:gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M560-360v-240l80 80 56-56-160-160-160 160 56 56 80-80v240h48Zm-80 200q-83 0-141.5-58.5T280-360v-400h400v400q0 83-58.5 141.5T480-160Zm0-80q50 0 85-35t35-85v-320H360v320q0 50 35 85t85 35ZM200-80q-33 0-56.5-23.5T120-160v-520h80v520h520v80H200Zm280-440Z" /></svg>
             <span className="truncate text-sm text-neutral-200">{selectedFile.name}</span>
           </div>
-          <span className="shrink-0 text-xs tabular-nums text-neutral-500">{formatFileSize(selectedFile.size)}</span>
+          <span className="shrink-0 text-xs tabular-nums text-neutral-500 sm:ml-auto">{formatFileSize(selectedFile.size)}</span>
         </div>
       ) : null}
     </div>

@@ -100,9 +100,10 @@ export default function PrivacyPolicy() {
                                 at any time through your browser settings.
                             </p>
                             <p>
-                                We do not use <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">localStorage</code>,{" "}
+                                We only use a minimal <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">localStorage</code> flag to remember whether the model was loaded before, so the UI can skip a redundant first-load hint. We do not store audio, transcripts, personal data, or tracking identifiers in{" "}
+                                <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">localStorage</code>,{" "}
                                 <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">sessionStorage</code>, or{" "}
-                                <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">IndexedDB</code> for any purpose.
+                                <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">IndexedDB</code>.
                             </p>
                         </Section>
                     </div>
