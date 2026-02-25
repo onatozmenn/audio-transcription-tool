@@ -17,7 +17,9 @@ const LANGUAGE_CODES: Record<string, string> = {
 
 const MAX_AUDIO_FILE_BYTES = 4_500_000;
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 12;
+// Mobile long-audio transcription is chunked into many API calls.
+// Keep abuse protection, but allow sustained chunk uploads.
+const MAX_REQUESTS_PER_WINDOW = 90;
 const ALLOWED_AUDIO_TYPES = new Set([
   "audio/mpeg",
   "audio/wav",
@@ -34,12 +36,19 @@ const ALLOWED_AUDIO_TYPES = new Set([
 ]);
 const RATE_LIMIT_STORE = new Map<string, { windowStart: number; count: number }>();
 
-function jsonError(message: string, status: number): NextResponse {
+function jsonError(
+  message: string,
+  status: number,
+  headers: Record<string, string> = {},
+): NextResponse {
   return NextResponse.json(
     { error: message },
     {
       status,
-      headers: { "Cache-Control": "no-store" },
+      headers: {
+        "Cache-Control": "no-store",
+        ...headers,
+      },
     },
   );
 }
@@ -72,6 +81,17 @@ function isRateLimited(ip: string, now: number): boolean {
   state.count += 1;
   RATE_LIMIT_STORE.set(ip, state);
   return state.count > MAX_REQUESTS_PER_WINDOW;
+}
+
+function getRetryAfterSeconds(ip: string, now: number): number {
+  const state = RATE_LIMIT_STORE.get(ip);
+  if (!state) {
+    return Math.ceil(RATE_LIMIT_WINDOW_MS / 1000);
+  }
+
+  const resetAt = state.windowStart + RATE_LIMIT_WINDOW_MS;
+  const msUntilReset = Math.max(resetAt - now, 1_000);
+  return Math.ceil(msUntilReset / 1_000);
 }
 
 function toHostname(urlValue: string | null): string | null {
@@ -132,7 +152,17 @@ export async function POST(req: Request) {
 
     const ip = getRequestIp(req);
     if (isRateLimited(ip, now)) {
-      return jsonError("Too many requests. Please try again in a minute.", 429);
+      const retryAfterSeconds = getRetryAfterSeconds(ip, now);
+      return jsonError(
+        "Too many requests. Please try again shortly.",
+        429,
+        {
+          "Retry-After": String(retryAfterSeconds),
+          "X-RateLimit-Limit": String(MAX_REQUESTS_PER_WINDOW),
+          "X-RateLimit-Window": String(Math.ceil(RATE_LIMIT_WINDOW_MS / 1_000)),
+          "X-RateLimit-Remaining": "0",
+        },
+      );
     }
 
     const formData = await req.formData();

@@ -108,10 +108,15 @@ const TARGET_SAMPLE_RATE = 16_000;
 const LOCAL_CHUNK_LENGTH_S = 30;
 const LOCAL_STRIDE_LENGTH_S = 5;
 const LOCAL_AUDIO_STEP_S = LOCAL_CHUNK_LENGTH_S - 2 * LOCAL_STRIDE_LENGTH_S;
-const CLOUD_CHUNK_DURATION_S = 60;
+// Larger chunks reduce request count on mobile long recordings.
+const CLOUD_CHUNK_DURATION_S = 110;
 const MAX_CLOUD_DIRECT_UPLOAD_BYTES = 3 * 1024 * 1024;
 const MAX_CLOUD_CHUNK_UPLOAD_BYTES = 4 * 1024 * 1024;
-const MAX_MOBILE_DECODE_FILE_BYTES = 40 * 1024 * 1024;
+const MAX_MOBILE_DECODE_FILE_BYTES = 90 * 1024 * 1024;
+const MAX_MOBILE_CLOUD_AUDIO_SECONDS = 2 * 60 * 60;
+const MAX_CLOUD_REQUEST_RETRIES = 6;
+const CLOUD_RETRY_BASE_DELAY_MS = 1_500;
+const MAX_CLOUD_RETRY_DELAY_MS = 20_000;
 const APP_URL = "https://audio-transcription.app";
 const APP_URL_TR = `${APP_URL}/tr`;
 
@@ -335,22 +340,49 @@ async function decodeAudioFile(file: File): Promise<Float32Array> {
   }
 }
 
-async function decodeAudioFileForCloudChunking(file: File): Promise<{ samples: Float32Array; sampleRate: number }> {
+async function decodeAudioBufferForCloudChunking(file: File): Promise<AudioBuffer> {
   const arrayBuffer = await file.arrayBuffer();
   const AudioContextClass = window.AudioContext;
   if (!AudioContextClass) {
     throw new Error("Web Audio API is not supported in this browser.");
   }
 
-  const audioContext = new AudioContextClass();
+  // Decode at target sample rate to reduce mobile memory pressure.
+  const audioContext = new AudioContextClass({ sampleRate: TARGET_SAMPLE_RATE });
   try {
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
-    const mono = downmixToMono(audioBuffer);
-    const resampled = resampleMonoAudio(mono, audioBuffer.sampleRate, TARGET_SAMPLE_RATE);
-    return { samples: resampled, sampleRate: TARGET_SAMPLE_RATE };
+    return await audioContext.decodeAudioData(arrayBuffer.slice(0));
   } finally {
     await audioContext.close();
   }
+}
+
+function extractMonoChunkFromAudioBuffer(
+  audioBuffer: AudioBuffer,
+  startSample: number,
+  endSample: number,
+): Float32Array {
+  const safeStart = Math.max(0, Math.min(startSample, audioBuffer.length));
+  const safeEnd = Math.max(safeStart + 1, Math.min(endSample, audioBuffer.length));
+  const chunkLength = safeEnd - safeStart;
+  const mono = new Float32Array(chunkLength);
+
+  if (audioBuffer.numberOfChannels === 1) {
+    mono.set(audioBuffer.getChannelData(0).subarray(safeStart, safeEnd));
+    return mono;
+  }
+
+  for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
+    const channelData = audioBuffer.getChannelData(channel);
+    for (let i = 0; i < chunkLength; i += 1) {
+      mono[i] += channelData[safeStart + i];
+    }
+  }
+
+  for (let i = 0; i < chunkLength; i += 1) {
+    mono[i] /= audioBuffer.numberOfChannels;
+  }
+
+  return mono;
 }
 
 async function getAudioDurationSeconds(file: File): Promise<number | null> {
@@ -905,38 +937,124 @@ export default function Home() {
         abortControllerRef.current = controller;
 
         try {
+          const parseRetryAfterSeconds = (retryAfterHeader: string | null): number | null => {
+            if (!retryAfterHeader) return null;
+
+            const seconds = Number.parseInt(retryAfterHeader, 10);
+            if (Number.isFinite(seconds) && seconds > 0) {
+              return seconds;
+            }
+
+            const parsedDate = Date.parse(retryAfterHeader);
+            if (Number.isNaN(parsedDate)) return null;
+
+            const deltaSeconds = Math.ceil((parsedDate - Date.now()) / 1_000);
+            return deltaSeconds > 0 ? deltaSeconds : null;
+          };
+
+          const retryDelayMs = (attempt: number, retryAfterHeader: string | null): number => {
+            const backoffMs = Math.min(
+              MAX_CLOUD_RETRY_DELAY_MS,
+              CLOUD_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1),
+            );
+            const retryAfterSeconds = parseRetryAfterSeconds(retryAfterHeader);
+            if (retryAfterSeconds === null) return backoffMs;
+            return Math.max(backoffMs, retryAfterSeconds * 1_000);
+          };
+
+          const waitWithAbort = (ms: number): Promise<void> =>
+            new Promise((resolve, reject) => {
+              if (controller.signal.aborted) {
+                reject(new DOMException("Aborted", "AbortError"));
+                return;
+              }
+
+              const timeoutId = window.setTimeout(() => {
+                controller.signal.removeEventListener("abort", onAbort);
+                resolve();
+              }, ms);
+
+              const onAbort = () => {
+                window.clearTimeout(timeoutId);
+                controller.signal.removeEventListener("abort", onAbort);
+                reject(new DOMException("Aborted", "AbortError"));
+              };
+
+              controller.signal.addEventListener("abort", onAbort, { once: true });
+            });
+
           const transcribeCloudBlob = async (
             blob: Blob,
             chunkFileName: string,
           ): Promise<CloudTranscribeResponse> => {
-            const formData = new FormData();
-            formData.append("file", blob, chunkFileName);
-            if (selectedLanguage && selectedLanguage !== "auto") {
-              formData.append("language", selectedLanguage);
-            }
+            const maxAttempts = MAX_CLOUD_REQUEST_RETRIES + 1;
 
-            const response = await fetch("/api/transcribe", {
-              method: "POST",
-              body: formData,
-              signal: controller.signal,
-            });
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const formData = new FormData();
+              formData.append("file", blob, chunkFileName);
+              if (selectedLanguage && selectedLanguage !== "auto") {
+                formData.append("language", selectedLanguage);
+              }
 
-            if (!response.ok) {
-              const data = await response.json().catch(() => ({}));
-              const apiError = data?.error || "Cloud transcription failed.";
+              let response: Response;
+              try {
+                response = await fetch("/api/transcribe", {
+                  method: "POST",
+                  body: formData,
+                  signal: controller.signal,
+                });
+              } catch (requestError) {
+                if (requestError instanceof DOMException && requestError.name === "AbortError") {
+                  throw requestError;
+                }
+
+                const hasAttemptsLeft = attempt < maxAttempts;
+                if (!hasAttemptsLeft) throw requestError;
+
+                const delayMs = retryDelayMs(attempt, null);
+                setLoadingDetail(
+                  `Cloud connection issue. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                );
+                await waitWithAbort(delayMs);
+                continue;
+              }
+
+              if (response.ok) {
+                return (await response.json()) as CloudTranscribeResponse;
+              }
+
+              const data = (await response.json().catch(() => ({}))) as { error?: string };
+              const apiError = data.error || "Cloud transcription failed.";
+              const hasAttemptsLeft = attempt < maxAttempts;
+              const shouldRetry = response.status === 429 || response.status >= 500;
+
+              if (shouldRetry && hasAttemptsLeft) {
+                const delayMs = retryDelayMs(
+                  attempt,
+                  response.headers.get("retry-after"),
+                );
+                const reason = response.status === 429 ? "Cloud rate limit hit" : "Cloud is busy";
+                setLoadingDetail(
+                  `${reason}. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                );
+                await waitWithAbort(delayMs);
+                continue;
+              }
+
               throw new Error(`HTTP ${response.status}: ${apiError}`);
             }
 
-            return (await response.json()) as CloudTranscribeResponse;
+            throw new Error("Cloud transcription failed after multiple retries.");
           };
 
           // Vercel serverless functions have a ~4.5 MB request body limit.
-          // For larger files, decode once and upload chunk-by-chunk to avoid
-          // keeping all encoded WAV chunks in memory at the same time.
+          // For larger files, decode once, then transcode/upload chunk-by-chunk
+          // without creating one giant mono Float32Array copy.
           let totalCloudChunks = 1;
-          let decodedAudioData: Float32Array | null = null;
-          let decodedAudioSampleRate = TARGET_SAMPLE_RATE;
-          let samplesPerChunk = 0;
+          let decodedAudioBuffer: AudioBuffer | null = null;
+          let sourceSampleRate = TARGET_SAMPLE_RATE;
+          let sourceSamplesPerChunk = 0;
+          let targetSamplesPerChunk = 0;
 
           if (file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES) {
             void getAudioDurationSeconds(file).then((duration) => {
@@ -947,31 +1065,44 @@ export default function Home() {
           } else {
             if (file.size > MAX_MOBILE_DECODE_FILE_BYTES) {
               throw new Error(
-                "This file is too large for reliable mobile processing. Please use desktop for very long recordings.",
+                "This file is too large for mobile browser processing. Please use desktop for very long or high-quality recordings.",
               );
             }
 
             setLoadingDetail("Preparing audio for upload...");
             setStatus("decoding"); // visually update
-            const { samples: audioData, sampleRate } = await decodeAudioFileForCloudChunking(file);
+            const audioBuffer = await decodeAudioBufferForCloudChunking(file);
             if (requestId !== activeRequestIdRef.current) return;
 
             setStatus("transcribing"); // back to transcribing
-            setAudioDurationSeconds(Math.max(1, Math.round(audioData.length / sampleRate)));
+            const audioDuration = audioBuffer.length / audioBuffer.sampleRate;
+            if (audioDuration > MAX_MOBILE_CLOUD_AUDIO_SECONDS) {
+              throw new Error(
+                "This recording is longer than 2 hours on mobile. Please split it into parts or use desktop.",
+              );
+            }
+            setAudioDurationSeconds(Math.max(1, Math.round(audioDuration)));
 
             // Keep each WAV chunk safely below the server body limit.
-            const desiredSamplesPerChunk = CLOUD_CHUNK_DURATION_S * sampleRate;
-            const maxSamplesPerChunk = Math.max(
+            const desiredTargetSamplesPerChunk = CLOUD_CHUNK_DURATION_S * TARGET_SAMPLE_RATE;
+            const maxTargetSamplesPerChunk = Math.max(
               1,
               Math.floor((MAX_CLOUD_CHUNK_UPLOAD_BYTES - 44) / 2),
             );
-            samplesPerChunk = Math.max(
+            targetSamplesPerChunk = Math.max(
               1,
-              Math.min(desiredSamplesPerChunk, maxSamplesPerChunk),
+              Math.min(desiredTargetSamplesPerChunk, maxTargetSamplesPerChunk),
             );
-            decodedAudioData = audioData;
-            decodedAudioSampleRate = sampleRate;
-            totalCloudChunks = Math.max(1, Math.ceil(audioData.length / samplesPerChunk));
+            decodedAudioBuffer = audioBuffer;
+            sourceSampleRate = audioBuffer.sampleRate;
+            sourceSamplesPerChunk = Math.max(
+              1,
+              Math.round((targetSamplesPerChunk * sourceSampleRate) / TARGET_SAMPLE_RATE),
+            );
+            totalCloudChunks = Math.max(
+              1,
+              Math.ceil(audioBuffer.length / sourceSamplesPerChunk),
+            );
           }
           setTotalChunks(totalCloudChunks);
 
@@ -981,16 +1112,34 @@ export default function Home() {
           for (let i = 0; i < totalCloudChunks; i++) {
             if (abortControllerRef.current?.signal.aborted) break;
 
-            const isChunkedUpload = decodedAudioData !== null;
+            const isChunkedUpload = decodedAudioBuffer !== null;
             let uploadBlob = file as Blob;
             let offsetS = 0;
             let uploadName = file.name;
 
-            if (isChunkedUpload && decodedAudioData) {
-              const chunkStartSample = i * samplesPerChunk;
-              const chunkData = decodedAudioData.slice(chunkStartSample, chunkStartSample + samplesPerChunk);
-              uploadBlob = encodeWAV(chunkData, decodedAudioSampleRate);
-              offsetS = chunkStartSample / decodedAudioSampleRate;
+            if (isChunkedUpload && decodedAudioBuffer) {
+              const chunkStartSample = i * sourceSamplesPerChunk;
+              const chunkEndSample = Math.min(
+                chunkStartSample + sourceSamplesPerChunk,
+                decodedAudioBuffer.length,
+              );
+              let chunkData = extractMonoChunkFromAudioBuffer(
+                decodedAudioBuffer,
+                chunkStartSample,
+                chunkEndSample,
+              );
+              if (sourceSampleRate !== TARGET_SAMPLE_RATE) {
+                chunkData = resampleMonoAudio(
+                  chunkData,
+                  sourceSampleRate,
+                  TARGET_SAMPLE_RATE,
+                );
+              }
+              if (chunkData.length > targetSamplesPerChunk) {
+                chunkData = chunkData.slice(0, targetSamplesPerChunk);
+              }
+              uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
+              offsetS = chunkStartSample / sourceSampleRate;
               uploadName = `chunk-${i}.wav`;
             }
 

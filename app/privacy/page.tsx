@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 
 export const metadata: Metadata = {
-    title: "Privacy Policy — Audio Transcription",
+    title: "Privacy Policy - Audio Transcription",
     description: "Privacy policy for the client-side audio transcription tool.",
 };
 
@@ -83,7 +83,7 @@ export default function PrivacyPolicy() {
 
                         <Section title="How Transcription Works">
                             <p>
-                                <span className="font-medium text-neutral-200">Desktop Processing:</span> When you upload audio on a desktop, it is decoded and processed entirely within your browser using the Whisper Small model running via WebAssembly or WebGPU. The AI model itself is downloaded from Hugging Face once and cached in your browser — after that, the tool works fully offline.
+                                <span className="font-medium text-neutral-200">Desktop Processing:</span> When you upload audio on a desktop, it is decoded and processed entirely within your browser using the Whisper Small model running via WebAssembly or WebGPU. The AI model itself is downloaded from Hugging Face once and cached in your browser - after that, the tool works fully offline.
                             </p>
                             <p className="mt-2">
                                 <span className="font-medium text-neutral-200">Mobile Processing:</span> To prevent memory crashes on mobile browsers, your audio is chunked and securely sent via our API to <span className="font-medium text-neutral-200">Groq Cloud</span>, which uses the Whisper Large V3 model. The audio is transcribed and the text is immediately returned to your device. Groq operates under strict privacy guidelines and your audio is purely processed in-memory.
@@ -165,13 +165,13 @@ export default function PrivacyPolicy() {
                 <div className="mt-10 flex items-center justify-between border-t border-white/10 pt-6">
                     <p className="text-xs text-neutral-500">
                         Developed by{" "}
-                        <span className="font-medium text-neutral-300">Onat Özmen</span>
+                        <span className="font-medium text-neutral-300">Onat Ozmen</span>
                     </p>
                     <Link
                         href="/"
                         className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-cyan-400/40 hover:bg-neutral-800 hover:text-cyan-200"
                     >
-                        ← Back to app
+                        Back to app
                     </Link>
                 </div>
 
