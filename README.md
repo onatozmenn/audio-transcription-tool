@@ -81,7 +81,7 @@ flowchart LR
     E --> F[Final Transcript + Export]
 
     B -->|Mobile| G[Chunk + WAV Encode]
-    G --> H[/api/transcribe]
+    G --> H["/api/transcribe"]
     H --> I[Groq whisper-large-v3]
     I --> J[Chunk Transcript + Segments]
     J --> K[Merge + Offset Timestamps]
