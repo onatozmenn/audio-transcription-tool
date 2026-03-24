@@ -11,8 +11,13 @@ import {
   Square,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { UploadDropzone } from "@/components/upload-dropzone";
+import {
+  BLOB_UPLOAD_ACCESS,
+  TRANSCRIPTION_SESSION_HEADER,
+} from "@/lib/cloud-transcription";
 
 type WhisperLanguage =
   | "english"
@@ -69,6 +74,18 @@ type CloudTranscribeResponse = {
   segments?: Array<{ text: string; start: number; end: number }>;
 };
 
+type TranscriptionChunkGrant = {
+  chunkIndex: number;
+  pathname: string;
+  token: string;
+};
+
+type TranscriptionSessionResponse = {
+  expiresAt: string;
+  grants: TranscriptionChunkGrant[];
+  jobId: string;
+};
+
 type WorkerResponse =
   | { type: "status"; status: WorkerStatus; requestId?: number; detail?: string; device?: string }
   | {
@@ -111,6 +128,7 @@ const LOCAL_AUDIO_STEP_S = LOCAL_CHUNK_LENGTH_S - 2 * LOCAL_STRIDE_LENGTH_S;
 // Larger chunks reduce request count on mobile long recordings.
 const CLOUD_CHUNK_DURATION_S = 110;
 const MAX_CLOUD_DIRECT_UPLOAD_BYTES = 3 * 1024 * 1024;
+// Keep Blob uploads comfortably small for faster mobile retries and cleanup.
 const MAX_CLOUD_CHUNK_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_MOBILE_DECODE_FILE_BYTES = 90 * 1024 * 1024;
 const MAX_MOBILE_CLOUD_AUDIO_SECONDS = 2 * 60 * 60;
@@ -153,7 +171,7 @@ const FAQ_JSON_LD_EN = {
       name: "Is my audio private during transcription?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "On desktop, transcription runs locally in your browser. On mobile, audio is sent through secure cloud processing and returned as text.",
+        text: "On desktop, transcription runs locally in your browser. On mobile, audio is uploaded privately for cloud transcription and deleted after processing.",
       },
     },
     {
@@ -983,24 +1001,21 @@ export default function Home() {
               controller.signal.addEventListener("abort", onAbort, { once: true });
             });
 
-          const transcribeCloudBlob = async (
-            blob: Blob,
-            chunkFileName: string,
-          ): Promise<CloudTranscribeResponse> => {
-            const maxAttempts = MAX_CLOUD_REQUEST_RETRIES + 1;
+          const createCloudSession = async (
+            totalChunks: number,
+          ): Promise<TranscriptionSessionResponse> => {
+            const maxAttempts = 3;
 
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-              const formData = new FormData();
-              formData.append("file", blob, chunkFileName);
-              if (selectedLanguage && selectedLanguage !== "auto") {
-                formData.append("language", selectedLanguage);
-              }
-
               let response: Response;
               try {
-                response = await fetch("/api/transcribe", {
+                response = await fetch("/api/transcribe/session", {
                   method: "POST",
-                  body: formData,
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    fileName: file.name,
+                    totalChunks,
+                  }),
                   signal: controller.signal,
                 });
               } catch (requestError) {
@@ -1008,34 +1023,29 @@ export default function Home() {
                   throw requestError;
                 }
 
-                const hasAttemptsLeft = attempt < maxAttempts;
-                if (!hasAttemptsLeft) throw requestError;
+                if (attempt >= maxAttempts) throw requestError;
 
                 const delayMs = retryDelayMs(attempt, null);
                 setLoadingDetail(
-                  `Cloud connection issue. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                  `Secure session setup failed. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
                 );
                 await waitWithAbort(delayMs);
                 continue;
               }
 
               if (response.ok) {
-                return (await response.json()) as CloudTranscribeResponse;
+                return (await response.json()) as TranscriptionSessionResponse;
               }
 
               const data = (await response.json().catch(() => ({}))) as { error?: string };
-              const apiError = data.error || "Cloud transcription failed.";
+              const apiError = data.error || "Could not start the secure transcription session.";
               const hasAttemptsLeft = attempt < maxAttempts;
               const shouldRetry = response.status === 429 || response.status >= 500;
 
               if (shouldRetry && hasAttemptsLeft) {
-                const delayMs = retryDelayMs(
-                  attempt,
-                  response.headers.get("retry-after"),
-                );
-                const reason = response.status === 429 ? "Cloud rate limit hit" : "Cloud is busy";
+                const delayMs = retryDelayMs(attempt, response.headers.get("retry-after"));
                 setLoadingDetail(
-                  `${reason}. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                  `Secure session is busy. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
                 );
                 await waitWithAbort(delayMs);
                 continue;
@@ -1044,12 +1054,133 @@ export default function Home() {
               throw new Error(`HTTP ${response.status}: ${apiError}`);
             }
 
-            throw new Error("Cloud transcription failed after multiple retries.");
+            throw new Error("Could not start the secure transcription session.");
           };
 
-          // Vercel serverless functions have a ~4.5 MB request body limit.
-          // For larger files, decode once, then transcode/upload chunk-by-chunk
-          // without creating one giant mono Float32Array copy.
+          const cleanupUploadedCloudBlob = async (
+            blobUrl: string,
+            chunkGrant: TranscriptionChunkGrant,
+          ): Promise<void> => {
+            try {
+              await fetch("/api/blob/delete", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
+                },
+                body: JSON.stringify({ blobUrl }),
+              });
+            } catch {
+              // Temporary mobile uploads are deleted on a best-effort basis.
+            }
+          };
+
+          const uploadCloudBlob = async (
+            blob: Blob,
+            chunkGrant: TranscriptionChunkGrant,
+            chunkIndex: number,
+            totalChunks: number,
+          ) => {
+            return upload(chunkGrant.pathname, blob, {
+              access: BLOB_UPLOAD_ACCESS,
+              handleUploadUrl: "/api/blob/upload",
+              contentType: blob.type || undefined,
+              headers: {
+                [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
+              },
+              abortSignal: controller.signal,
+              onUploadProgress: ({ percentage }) => {
+                if (requestId !== activeRequestIdRef.current) return;
+                setProgress(((chunkIndex + percentage / 100) / totalChunks) * 100);
+              },
+            });
+          };
+
+          const transcribeCloudBlob = async (
+            blob: Blob,
+            chunkGrant: TranscriptionChunkGrant,
+            chunkIndex: number,
+            totalChunks: number,
+          ): Promise<CloudTranscribeResponse> => {
+            const maxAttempts = MAX_CLOUD_REQUEST_RETRIES + 1;
+            const uploadedBlob = await uploadCloudBlob(
+              blob,
+              chunkGrant,
+              chunkIndex,
+              totalChunks,
+            );
+
+            try {
+              for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                let response: Response;
+                try {
+                  setLoadingDetail(
+                    totalChunks > 1
+                      ? `Transcribing chunk ${chunkIndex + 1} of ${totalChunks}...`
+                      : "Transcribing audio...",
+                  );
+
+                  response = await fetch("/api/transcribe", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
+                    },
+                    body: JSON.stringify({
+                      blobUrl: uploadedBlob.url,
+                      language: selectedLanguage ?? "auto",
+                    }),
+                    signal: controller.signal,
+                  });
+                } catch (requestError) {
+                  if (requestError instanceof DOMException && requestError.name === "AbortError") {
+                    throw requestError;
+                  }
+
+                  const hasAttemptsLeft = attempt < maxAttempts;
+                  if (!hasAttemptsLeft) throw requestError;
+
+                  const delayMs = retryDelayMs(attempt, null);
+                  setLoadingDetail(
+                    `Cloud connection issue. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                  );
+                  await waitWithAbort(delayMs);
+                  continue;
+                }
+
+                if (response.ok) {
+                  return (await response.json()) as CloudTranscribeResponse;
+                }
+
+                const data = (await response.json().catch(() => ({}))) as { error?: string };
+                const apiError = data.error || "Cloud transcription failed.";
+                const hasAttemptsLeft = attempt < maxAttempts;
+                const shouldRetry = response.status === 429 || response.status >= 500;
+
+                if (shouldRetry && hasAttemptsLeft) {
+                  const delayMs = retryDelayMs(
+                    attempt,
+                    response.headers.get("retry-after"),
+                  );
+                  const reason = response.status === 429 ? "Cloud rate limit hit" : "Cloud is busy";
+                  setLoadingDetail(
+                    `${reason}. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                  );
+                  await waitWithAbort(delayMs);
+                  continue;
+                }
+
+                throw new Error(`HTTP ${response.status}: ${apiError}`);
+              }
+
+              throw new Error("Cloud transcription failed after multiple retries.");
+            } finally {
+              await cleanupUploadedCloudBlob(uploadedBlob.url, chunkGrant);
+            }
+          };
+
+          // Small mobile files can upload directly. Larger ones are decoded once,
+          // then transcoded and sent to private Blob storage chunk-by-chunk.
           let totalCloudChunks = 1;
           let decodedAudioBuffer: AudioBuffer | null = null;
           let sourceSampleRate = TARGET_SAMPLE_RATE;
@@ -1106,6 +1237,13 @@ export default function Home() {
           }
           setTotalChunks(totalCloudChunks);
 
+          setLoadingDetail("Starting secure cloud session...");
+          const cloudSession = await createCloudSession(totalCloudChunks);
+          if (requestId !== activeRequestIdRef.current) return;
+          if (cloudSession.grants.length !== totalCloudChunks) {
+            throw new Error("Cloud session could not reserve all upload chunks.");
+          }
+
           let combinedText = "";
           const combinedSegments: TranscriptSegment[] = [];
 
@@ -1115,7 +1253,6 @@ export default function Home() {
             const isChunkedUpload = decodedAudioBuffer !== null;
             let uploadBlob = file as Blob;
             let offsetS = 0;
-            let uploadName = file.name;
 
             if (isChunkedUpload && decodedAudioBuffer) {
               const chunkStartSample = i * sourceSamplesPerChunk;
@@ -1140,20 +1277,28 @@ export default function Home() {
               }
               uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
               offsetS = chunkStartSample / sourceSampleRate;
-              uploadName = `chunk-${i}.wav`;
             }
 
             setLoadingDetail(
               totalCloudChunks > 1
-                ? `Uploading chunk ${i + 1} of ${totalCloudChunks}...`
-                : "Uploading audio...",
+                ? `Uploading chunk ${i + 1} of ${totalCloudChunks} securely...`
+                : "Uploading audio securely...",
             );
             setProcessedChunks(i);
             setProgress((i / totalCloudChunks) * 100);
 
             if (requestId !== activeRequestIdRef.current) return;
+            const chunkGrant = cloudSession.grants[i];
+            if (!chunkGrant || chunkGrant.chunkIndex !== i) {
+              throw new Error("Cloud session is missing a valid upload grant.");
+            }
 
-            const result = await transcribeCloudBlob(uploadBlob, uploadName);
+            const result = await transcribeCloudBlob(
+              uploadBlob,
+              chunkGrant,
+              i,
+              totalCloudChunks,
+            );
             setProcessedChunks(i + 1);
             setProgress(((i + 1) / totalCloudChunks) * 100);
 
@@ -1515,7 +1660,8 @@ export default function Home() {
           </div>
           <p className="max-w-2xl text-sm leading-6 text-neutral-300 sm:text-base">
             Convert audio to text online for free using Whisper AI. Transcribe MP3, WAV, M4A and
-            more. Desktop runs locally; mobile uses secure cloud transcription. No sign-up.
+            more. Desktop runs locally; mobile uses secure cloud transcription with temporary
+            private uploads. No sign-up.
           </p>
           <h2 className="text-base font-semibold text-neutral-200 sm:text-xl">
             Audio to Text Converter (MP3, WAV, M4A) — Free & Private
@@ -1540,7 +1686,8 @@ export default function Home() {
               <h3 className="text-sm font-medium text-neutral-200">Private Audio Transcription</h3>
             </div>
             <p className="text-xs leading-relaxed text-neutral-400">
-              Desktop runs locally. On mobile, audio is processed securely. No storage or tracking.
+              Desktop runs locally. On mobile, audio is processed through a temporary private upload
+              that is deleted after transcription.
             </p>
           </div>
 

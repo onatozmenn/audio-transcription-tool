@@ -33,7 +33,8 @@
 Most transcription tools force users into uploads, accounts, and unclear privacy tradeoffs. This app keeps the default path private and fast:
 
 - Desktop: transcription runs in-browser with Whisper Small (WebGPU/WASM).
-- Mobile: secure server route to Groq Whisper Large V3 for reliability.
+- Mobile: direct private upload + signed URL handoff to Groq Whisper Large V3.
+- Abuse resistance: BotID + signed per-chunk session grants on protected cloud routes.
 - Long recordings: chunked processing, retry/backoff, and progress-aware UX.
 
 If this project is useful, please star the repo. It helps a lot.
@@ -59,8 +60,10 @@ If this project is useful, please star the repo. It helps a lot.
 ### 2. Mobile path (cloud fallback)
 
 - Audio is chunked into upload-safe WAV parts.
-- Chunks are sent to `/api/transcribe`.
-- Server forwards requests to Groq `whisper-large-v3`.
+- Chunks upload directly from the browser to private Vercel Blob storage.
+- The client starts one signed transcription session and receives chunk-specific grants.
+- `/api/transcribe` sends Groq a short-lived signed Blob URL instead of proxying raw audio bytes.
+- Temporary uploads are deleted after each chunk is transcribed.
 - Responses are merged into a full transcript with segment timestamps.
 
 ### 3. Long-audio reliability protections
@@ -81,11 +84,13 @@ flowchart LR
     E --> F[Final Transcript + Export]
 
     B -->|Mobile| G[Chunk + WAV Encode]
-    G --> H["/api/transcribe"]
-    H --> I[Groq whisper-large-v3]
-    I --> J[Chunk Transcript + Segments]
-    J --> K[Merge + Offset Timestamps]
-    K --> F
+    G --> H[Private Blob Upload]
+    H --> I["/api/transcribe (signed URL only)"]
+    I --> J[Groq whisper-large-v3]
+    J --> K[Chunk Transcript + Segments]
+    K --> L[Delete Temporary Blob]
+    L --> M[Merge + Offset Timestamps]
+    M --> F
 ```
 
 ## Tech Stack
@@ -95,6 +100,8 @@ flowchart LR
 - Tailwind CSS
 - Web Workers
 - `@huggingface/transformers`
+- `@vercel/blob`
+- `botid`
 - Groq Audio Transcription API
 
 ## Quick Start
@@ -136,24 +143,32 @@ Create `.env.local`:
 
 ```bash
 GROQ_API_KEY=your_groq_api_key
+BLOB_READ_WRITE_TOKEN=your_vercel_blob_read_write_token
+TRANSCRIPTION_SESSION_SECRET=your_random_session_secret
 ```
 
 Notes:
 
 - `GROQ_API_KEY` is required for mobile cloud fallback.
+- `BLOB_READ_WRITE_TOKEN` is required for direct private mobile uploads.
+- `TRANSCRIPTION_SESSION_SECRET` is recommended for signed chunk grants. If omitted, the app falls back to `GROQ_API_KEY`.
 - Desktop local transcription works without cloud calls.
 
 ## Deployment (Vercel)
 
 1. Push this repo to GitHub.
 2. Import project in Vercel.
-3. Add `GROQ_API_KEY` in Project Settings -> Environment Variables.
-4. Deploy.
+3. Create and connect a private Vercel Blob store.
+4. Add `GROQ_API_KEY`, `BLOB_READ_WRITE_TOKEN`, and ideally `TRANSCRIPTION_SESSION_SECRET` in Project Settings -> Environment Variables.
+5. In Project Settings -> Security, enable Secure Backend Access with OIDC Federation so BotID server verification can read the `x-vercel-oidc-token` header in functions.
+6. Deploy.
+7. Keep the committed `vercel.json` WAF challenge rules enabled so direct hits without a session header are challenged at the edge.
 
 ## Privacy Model
 
 - Desktop: local-only processing in browser runtime.
-- Mobile: audio is processed via secure cloud fallback endpoint.
+- Mobile: audio is uploaded to temporary private Blob storage, transcribed via Groq using a signed URL, and then deleted.
+- Protected routes use BotID and signed session grants so one transcription job cannot be replayed as unbounded chunk traffic.
 - No account or user identity flow is required by the app.
 
 See full policy: [Privacy Policy](https://audio-transcription.app/privacy)

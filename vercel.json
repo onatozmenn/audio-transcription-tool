@@ -1,0 +1,41 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "routes": [
+    {
+      "src": "/api/blob/upload",
+      "missing": [
+        {
+          "type": "header",
+          "key": "x-transcription-session"
+        }
+      ],
+      "mitigate": {
+        "action": "challenge"
+      }
+    },
+    {
+      "src": "/api/transcribe",
+      "missing": [
+        {
+          "type": "header",
+          "key": "x-transcription-session"
+        }
+      ],
+      "mitigate": {
+        "action": "challenge"
+      }
+    },
+    {
+      "src": "/api/blob/delete",
+      "missing": [
+        {
+          "type": "header",
+          "key": "x-transcription-session"
+        }
+      ],
+      "mitigate": {
+        "action": "challenge"
+      }
+    }
+  ]
+}
