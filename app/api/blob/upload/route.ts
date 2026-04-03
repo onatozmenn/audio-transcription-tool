@@ -49,7 +49,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         return {
           allowedContentTypes: [...ALLOWED_AUDIO_CONTENT_TYPES],
           maximumSizeInBytes: MAX_AUDIO_FILE_BYTES,
-          addRandomSuffix: true,
+          // Session grants already reserve a unique job/chunk pathname, so
+          // Blob must keep that exact pathname for later session validation.
+          addRandomSuffix: false,
         };
       },
     });
