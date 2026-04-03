@@ -95,6 +95,14 @@ type GroqSegment = { text: string; start: number; end: number };
 type GroqResponse = { text?: string; segments?: GroqSegment[] };
 type BlobTranscriptionRequest = { blobUrl?: string; language?: string };
 
+function buildInternalBlobStreamUrl(req: Request, pathname: string, sessionToken: string): string {
+  const baseUrl = new URL(req.url);
+  const streamUrl = new URL("/api/blob/file", baseUrl);
+  streamUrl.searchParams.set("pathname", pathname);
+  streamUrl.searchParams.set("token", sessionToken);
+  return streamUrl.toString();
+}
+
 async function buildGroqFormData(req: Request): Promise<FormData | NextResponse> {
   const contentType = req.headers.get("content-type") ?? "";
 
@@ -127,7 +135,8 @@ async function buildGroqFormData(req: Request): Promise<FormData | NextResponse>
       return jsonError("Unsupported audio upload path.", 400);
     }
     const sessionToken = getTranscriptionSessionToken(req);
-    if (!assertChunkPathname(sessionToken, blobMeta.pathname)) {
+    const sessionClaims = assertChunkPathname(sessionToken, blobMeta.pathname);
+    if (!sessionClaims || !sessionToken) {
       return jsonError(`Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`, 401);
     }
     if (blobMeta.size <= 0) {
@@ -141,7 +150,10 @@ async function buildGroqFormData(req: Request): Promise<FormData | NextResponse>
     }
 
     const groqFormData = new FormData();
-    groqFormData.append("url", blobMeta.downloadUrl);
+    groqFormData.append(
+      "url",
+      buildInternalBlobStreamUrl(req, blobMeta.pathname, sessionToken),
+    );
     groqFormData.append("model", "whisper-large-v3");
     groqFormData.append("response_format", "verbose_json");
 
