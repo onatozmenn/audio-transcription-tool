@@ -1,5 +1,7 @@
 export const MAX_AUDIO_FILE_BYTES = 4_500_000;
-export const BLOB_UPLOAD_ACCESS = "private" as const;
+export const BLOB_UPLOAD_ACCESS =
+  process.env.NEXT_PUBLIC_BLOB_UPLOAD_ACCESS === "public" ? "public" : "private";
+export const USE_DIRECT_BLOB_URL_HANDOFF = BLOB_UPLOAD_ACCESS === "public";
 export const BLOB_UPLOAD_PATH_PREFIX = "transcriptions/";
 export const TRANSCRIPTION_SESSION_HEADER = "x-transcription-session";
 export const ALLOWED_AUDIO_CONTENT_TYPES = [

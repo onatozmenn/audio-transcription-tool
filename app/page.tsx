@@ -171,7 +171,7 @@ const FAQ_JSON_LD_EN = {
       name: "Is my audio private during transcription?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "On desktop, transcription runs locally in your browser. On mobile, audio is uploaded privately for cloud transcription and deleted after processing.",
+        text: "On desktop, transcription runs locally in your browser. On mobile, audio is uploaded temporarily for cloud transcription and deleted after processing.",
       },
     },
     {
@@ -1180,7 +1180,7 @@ export default function Home() {
           };
 
           // Small mobile files can upload directly. Larger ones are decoded once,
-          // then transcoded and sent to private Blob storage chunk-by-chunk.
+          // then transcoded and sent to Blob storage chunk-by-chunk.
           let totalCloudChunks = 1;
           let decodedAudioBuffer: AudioBuffer | null = null;
           let sourceSampleRate = TARGET_SAMPLE_RATE;
@@ -1661,10 +1661,10 @@ export default function Home() {
           <p className="max-w-2xl text-sm leading-6 text-neutral-300 sm:text-base">
             Convert audio to text online for free using Whisper AI. Transcribe MP3, WAV, M4A and
             more. Desktop runs locally; mobile uses secure cloud transcription with temporary
-            private uploads. No sign-up.
+            Blob uploads. No sign-up.
           </p>
           <h2 className="text-base font-semibold text-neutral-200 sm:text-xl">
-            Audio to Text Converter (MP3, WAV, M4A) — Free & Private
+            Audio to Text Converter (MP3, WAV, M4A) — Free & Privacy-First
           </h2>
         </header>
 
@@ -1683,10 +1683,10 @@ export default function Home() {
           <div className="flex flex-1 flex-col p-5">
             <div className="mb-3 flex items-center gap-2 text-neutral-300">
               <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm240-120q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80ZM240-160v-400 400Z" /></svg>
-              <h3 className="text-sm font-medium text-neutral-200">Private Audio Transcription</h3>
+              <h3 className="text-sm font-medium text-neutral-200">Temporary Mobile Uploads</h3>
             </div>
             <p className="text-xs leading-relaxed text-neutral-400">
-              Desktop runs locally. On mobile, audio is processed through a temporary private upload
+              Desktop runs locally. On mobile, audio is processed through a temporary Blob upload
               that is deleted after transcription.
             </p>
           </div>

@@ -61,7 +61,7 @@ export default function PrivacyPolicy() {
                                 This tool is designed with a strong commitment to user privacy.
                                 <span className="font-medium text-neutral-200">We do not collect any personal data.</span>
                                 All audio processing for transcription happens either directly in your browser (desktop) or via a
-                                secure mobile flow that uses temporary private storage only for the time needed to complete transcription.
+                                secure mobile flow that uses temporary Blob storage only for the time needed to complete transcription.
                             </p>
                         </Section>
                     </div>
@@ -76,7 +76,7 @@ export default function PrivacyPolicy() {
                                     <span className="font-medium text-neutral-200">On Desktop:</span> All transcription happens entirely inside your browser. No audio data, text, or any other personal information is ever sent to a server.
                                 </li>
                                 <li>
-                                    <span className="font-medium text-neutral-200">On Mobile:</span> Due to hardware limitations on phones, your audio is uploaded to a private temporary file, transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">Groq Cloud</a>, and then deleted. Groq does not use your data to train their models.
+                                    <span className="font-medium text-neutral-200">On Mobile:</span> Due to hardware limitations on phones, your audio is uploaded to a temporary Blob file, transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">Groq Cloud</a>, and then deleted. Groq does not use your data to train their models.
                                 </li>
                             </ul>
                         </Section>
@@ -86,7 +86,7 @@ export default function PrivacyPolicy() {
                                 <span className="font-medium text-neutral-200">Desktop Processing:</span> When you upload audio on a desktop, it is decoded and processed entirely within your browser using the Whisper Small model running via WebAssembly or WebGPU. The AI model itself is downloaded from Hugging Face once and cached in your browser - after that, the tool works fully offline.
                             </p>
                             <p className="mt-2">
-                                <span className="font-medium text-neutral-200">Mobile Processing:</span> To prevent memory crashes on mobile browsers, your audio is chunked and uploaded directly from your device into a private temporary blob. Our server sends Groq a short-lived signed download link instead of proxying the raw audio through the transcription endpoint. After transcription completes, the temporary upload is deleted and the text is returned to your device.
+                                <span className="font-medium text-neutral-200">Mobile Processing:</span> To prevent memory crashes on mobile browsers, your audio is chunked and uploaded directly from your device into a temporary Vercel Blob object. Depending on your Blob store mode, the server either hands Groq the Blob URL directly or streams it through a protected route. After transcription completes, the temporary upload is deleted and the text is returned to your device.
                             </p>
                         </Section>
                     </div>
@@ -118,7 +118,7 @@ export default function PrivacyPolicy() {
                                     <span className="font-medium text-neutral-200">Hugging Face (Desktop):</span> Used only to download the open-source Whisper model files on first use. Their <a href="https://huggingface.co/privacy" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">privacy policy</a> applies to this simple file download.
                                 </li>
                                 <li>
-                                    <span className="font-medium text-neutral-200">Vercel Blob (Mobile Uploads):</span> Used only as temporary private storage so mobile audio can be uploaded directly without passing through our function body. Temporary uploads are deleted after transcription completes.
+                                    <span className="font-medium text-neutral-200">Vercel Blob (Mobile Uploads):</span> Used only as temporary storage so mobile audio can be uploaded directly. Temporary uploads are deleted after transcription completes.
                                 </li>
                                 <li>
                                     <span className="font-medium text-neutral-200">Groq Cloud (Mobile):</span> Used as the processing engine for mobile transcriptions. Groq processes API requests ephemerally; they do not retain your audio data or use it to train their models. You can read the <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">Groq Privacy Policy</a> for more details.

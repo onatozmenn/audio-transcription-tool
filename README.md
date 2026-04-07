@@ -30,10 +30,10 @@
 
 ## Why This Project
 
-Most transcription tools force users into uploads, accounts, and unclear privacy tradeoffs. This app keeps the default path private and fast:
+Most transcription tools force users into uploads, accounts, and unclear privacy tradeoffs. This app keeps the default path privacy-first and fast:
 
 - Desktop: transcription runs in-browser with Whisper Small (WebGPU/WASM).
-- Mobile: direct private upload + signed URL handoff to Groq Whisper Large V3.
+- Mobile: direct Blob upload + optional direct-URL handoff to Groq Whisper Large V3.
 - Abuse resistance: BotID + signed per-chunk session grants on protected cloud routes.
 - Long recordings: chunked processing, retry/backoff, and progress-aware UX.
 
@@ -60,9 +60,10 @@ If this project is useful, please star the repo. It helps a lot.
 ### 2. Mobile path (cloud fallback)
 
 - Audio is chunked into upload-safe WAV parts.
-- Chunks upload directly from the browser to private Vercel Blob storage.
+- Chunks upload directly from the browser to Vercel Blob storage.
 - The client starts one signed transcription session and receives chunk-specific grants.
-- `/api/transcribe` sends Groq a short-lived signed Blob URL instead of proxying raw audio bytes.
+- When `NEXT_PUBLIC_BLOB_UPLOAD_ACCESS=public`, `/api/transcribe` sends Groq the Blob URL directly.
+- When `NEXT_PUBLIC_BLOB_UPLOAD_ACCESS=private`, `/api/transcribe` falls back to the protected Blob proxy route.
 - Temporary uploads are deleted after each chunk is transcribed.
 - Responses are merged into a full transcript with segment timestamps.
 
@@ -84,8 +85,8 @@ flowchart LR
     E --> F[Final Transcript + Export]
 
     B -->|Mobile| G[Chunk + WAV Encode]
-    G --> H[Private Blob Upload]
-    H --> I["/api/transcribe (signed URL only)"]
+    G --> H[Temporary Blob Upload]
+    H --> I["/api/transcribe"]
     I --> J[Groq whisper-large-v3]
     J --> K[Chunk Transcript + Segments]
     K --> L[Delete Temporary Blob]
@@ -145,29 +146,32 @@ Create `.env.local`:
 GROQ_API_KEY=your_groq_api_key
 BLOB_READ_WRITE_TOKEN=your_vercel_blob_read_write_token
 TRANSCRIPTION_SESSION_SECRET=your_random_session_secret
+NEXT_PUBLIC_BLOB_UPLOAD_ACCESS=public
 ```
 
 Notes:
 
 - `GROQ_API_KEY` is required for mobile cloud fallback.
-- `BLOB_READ_WRITE_TOKEN` is required for direct private mobile uploads.
+- `BLOB_READ_WRITE_TOKEN` is required for direct mobile uploads.
 - `TRANSCRIPTION_SESSION_SECRET` is recommended for signed chunk grants. If omitted, the app falls back to `GROQ_API_KEY`.
+- `NEXT_PUBLIC_BLOB_UPLOAD_ACCESS` must match your Blob store mode. Use `public` to let Groq fetch audio directly and reduce Vercel Fast Origin Transfer. Use `private` to keep the protected proxy flow.
 - Desktop local transcription works without cloud calls.
 
 ## Deployment (Vercel)
 
 1. Push this repo to GitHub.
 2. Import project in Vercel.
-3. Create and connect a private Vercel Blob store.
+3. Create and connect a Vercel Blob store.
 4. Add `GROQ_API_KEY`, `BLOB_READ_WRITE_TOKEN`, and ideally `TRANSCRIPTION_SESSION_SECRET` in Project Settings -> Environment Variables.
-5. In Project Settings -> Security, enable Secure Backend Access with OIDC Federation so BotID server verification can read the `x-vercel-oidc-token` header in functions.
-6. Deploy.
-7. Keep the committed `vercel.json` WAF challenge rules enabled so direct hits without a session header are challenged at the edge.
+5. Set `NEXT_PUBLIC_BLOB_UPLOAD_ACCESS` to match the store. `public` is the recommended production mode if you want to reduce Fast Origin Transfer.
+6. In Project Settings -> Security, enable Secure Backend Access with OIDC Federation so BotID server verification can read the `x-vercel-oidc-token` header in functions.
+7. Deploy.
+8. Keep the committed `vercel.json` WAF challenge rules enabled so direct hits without a session header are challenged at the edge.
 
 ## Privacy Model
 
 - Desktop: local-only processing in browser runtime.
-- Mobile: audio is uploaded to temporary private Blob storage, transcribed via Groq using a signed URL, and then deleted.
+- Mobile: audio is uploaded to temporary Blob storage, transcribed via Groq, and then deleted.
 - Protected routes use BotID and signed session grants so one transcription job cannot be replayed as unbounded chunk traffic.
 - No account or user identity flow is required by the app.
 

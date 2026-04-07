@@ -2,7 +2,6 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   BLOB_UPLOAD_PATH_PREFIX,
   TRANSCRIPTION_SESSION_HEADER,
-  sanitizeUploadFileName,
 } from "@/lib/cloud-transcription";
 
 export const MAX_TRANSCRIPTION_SESSION_CHUNKS = 96;
@@ -68,10 +67,19 @@ function decodeClaims(token: string): TranscriptionChunkClaims | null {
   }
 }
 
+function extractSafeExtension(fileName: string): string {
+  const rawExtension = fileName.split(".").pop()?.trim().toLowerCase() ?? "";
+  if (!rawExtension || !/^[a-z0-9]{1,10}$/.test(rawExtension)) {
+    return ".bin";
+  }
+
+  return `.${rawExtension}`;
+}
+
 function buildChunkPathname(jobId: string, chunkIndex: number, fileName: string): string {
   const dateKey = new Date().toISOString().slice(0, 10);
-  const safeName = sanitizeUploadFileName(fileName);
-  return `${BLOB_UPLOAD_PATH_PREFIX}${dateKey}/${jobId}/chunk-${chunkIndex}-${safeName}`;
+  const fileExtension = extractSafeExtension(fileName);
+  return `${BLOB_UPLOAD_PATH_PREFIX}${dateKey}/${jobId}/chunk-${chunkIndex}${fileExtension}`;
 }
 
 function normalizePathname(pathname: string): string {

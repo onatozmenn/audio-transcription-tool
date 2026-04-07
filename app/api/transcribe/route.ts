@@ -8,6 +8,7 @@ import {
   isManagedBlobUrl,
   isValidAudioMimeType,
   TRANSCRIPTION_SESSION_HEADER,
+  USE_DIRECT_BLOB_URL_HANDOFF,
 } from "@/lib/cloud-transcription";
 import { assertChunkPathname, getTranscriptionSessionToken } from "@/lib/transcription-session";
 
@@ -152,7 +153,9 @@ async function buildGroqFormData(req: Request): Promise<FormData | NextResponse>
     const groqFormData = new FormData();
     groqFormData.append(
       "url",
-      buildInternalBlobStreamUrl(req, blobMeta.pathname, sessionToken),
+      USE_DIRECT_BLOB_URL_HANDOFF
+        ? blobMeta.url
+        : buildInternalBlobStreamUrl(req, blobMeta.pathname, sessionToken),
     );
     groqFormData.append("model", "whisper-large-v3");
     groqFormData.append("response_format", "verbose_json");
