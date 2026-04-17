@@ -146,6 +146,11 @@ const CLOUD_CHUNK_DURATION_S = IS_PUBLIC_BLOB_MODE ? 600 : 110;
 const MAX_CLOUD_DIRECT_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
   ? 24 * 1024 * 1024
   : 3 * 1024 * 1024;
+// Small compressed recordings can still represent very long audio. Once the
+// duration grows beyond a normal cloud chunk, a single mobile Groq request can
+// spend too long in the "uploaded, now transcribing" phase and appear stuck at
+// roughly 70% progress. Force the long-file path back through chunking.
+const MAX_DIRECT_CLOUD_AUDIO_SECONDS = CLOUD_CHUNK_DURATION_S;
 // 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
 // Private mode still has to proxy through the function body → keep 4 MB.
 const MAX_CLOUD_CHUNK_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
@@ -1319,20 +1324,41 @@ export default function Home() {
           let targetSamplesPerChunk = 0;
           const useOpusEncoding = isOpusOggEncodingSupported();
 
-          if (file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES) {
-            void getAudioDurationSeconds(file).then((duration) => {
-              if (requestId !== activeRequestIdRef.current) return;
-              if (duration === null) return;
-              setAudioDurationSeconds(Math.max(1, Math.round(duration)));
-            });
-          } else {
+          const canAttemptSingleBlobUpload = file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES;
+          let detectedDurationSeconds: number | null = null;
+
+          if (canAttemptSingleBlobUpload) {
+            detectedDurationSeconds = await getAudioDurationSeconds(file);
+            if (requestId !== activeRequestIdRef.current) return;
+
+            if (detectedDurationSeconds !== null) {
+              setAudioDurationSeconds(Math.max(1, Math.round(detectedDurationSeconds)));
+
+              if (detectedDurationSeconds > MAX_MOBILE_CLOUD_AUDIO_SECONDS) {
+                throw new Error(
+                  "This recording is longer than 2 hours on mobile. Please split it into parts or use desktop.",
+                );
+              }
+            }
+          }
+
+          const shouldUseSingleBlobUpload =
+            canAttemptSingleBlobUpload &&
+            (detectedDurationSeconds === null ||
+              detectedDurationSeconds <= MAX_DIRECT_CLOUD_AUDIO_SECONDS);
+
+          if (!shouldUseSingleBlobUpload) {
             if (file.size > MAX_MOBILE_DECODE_FILE_BYTES) {
               throw new Error(
                 "This file is too large for mobile browser processing. Please use desktop for very long or high-quality recordings.",
               );
             }
 
-            setLoadingDetail("Preparing audio for upload...");
+            setLoadingDetail(
+              canAttemptSingleBlobUpload
+                ? "Long recording detected. Splitting into mobile-safe chunks..."
+                : "Preparing audio for upload...",
+            );
             setStatus("decoding"); // visually update
             const audioBuffer = await decodeAudioBufferForCloudChunking(file);
             if (requestId !== activeRequestIdRef.current) return;
@@ -1495,7 +1521,7 @@ export default function Home() {
           abortControllerRef.current = null;
 
         } catch (cloudError: unknown) {
-          if (cloudError instanceof Error && cloudError.name === "AbortError") return;
+          if (controller.signal.aborted) return;
           if (requestId !== activeRequestIdRef.current) return;
           setStatus("error");
           setError(cloudError instanceof Error ? cloudError.message : "Cloud transcription failed.");
