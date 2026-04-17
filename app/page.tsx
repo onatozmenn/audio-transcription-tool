@@ -151,6 +151,8 @@ const MAX_CLOUD_DIRECT_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
 // spend too long in the "uploaded, now transcribing" phase and appear stuck at
 // roughly 70% progress. Force the long-file path back through chunking.
 const MAX_DIRECT_CLOUD_AUDIO_SECONDS = CLOUD_CHUNK_DURATION_S;
+const IOS_SAFARI_CLOUD_CHUNK_DURATION_S = 180;
+const UNCOMPRESSED_CLOUD_CHUNK_DURATION_S = 180;
 // 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
 // Private mode still has to proxy through the function body → keep 4 MB.
 const MAX_CLOUD_CHUNK_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
@@ -1147,9 +1149,16 @@ export default function Home() {
             // a generous timeout so we fall into the retry loop instead of
             // hanging forever.
             const uploadTimeoutController = new AbortController();
+            const uploadTimeoutMs = Math.min(
+              10 * 60_000,
+              Math.max(
+                180_000,
+                Math.ceil((blob.size / 100_000) * 1_000) + 30_000,
+              ),
+            );
             const uploadTimeoutId = window.setTimeout(() => {
               uploadTimeoutController.abort();
-            }, 120_000);
+            }, uploadTimeoutMs);
             const onOuterAbort = () => uploadTimeoutController.abort();
             controller.signal.addEventListener("abort", onOuterAbort, { once: true });
 
@@ -1389,7 +1398,16 @@ export default function Home() {
             // When WebCodecs Opus is available we compress ~10× on the fly,
             // so the per-chunk size budget is dominated by audio duration
             // rather than raw PCM bytes.
-            const desiredTargetSamplesPerChunk = CLOUD_CHUNK_DURATION_S * TARGET_SAMPLE_RATE;
+            const preferredChunkDurationSeconds = Math.min(
+              CLOUD_CHUNK_DURATION_S,
+              preferFetchBlobUpload
+                ? IOS_SAFARI_CLOUD_CHUNK_DURATION_S
+                : useOpusEncoding
+                  ? CLOUD_CHUNK_DURATION_S
+                  : UNCOMPRESSED_CLOUD_CHUNK_DURATION_S,
+            );
+            const desiredTargetSamplesPerChunk =
+              preferredChunkDurationSeconds * TARGET_SAMPLE_RATE;
             const maxTargetSamplesPerChunk = useOpusEncoding
               ? desiredTargetSamplesPerChunk
               : Math.max(1, Math.floor((MAX_CLOUD_CHUNK_UPLOAD_BYTES - 44) / 2));
