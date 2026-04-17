@@ -152,6 +152,8 @@ const MAX_CLOUD_DIRECT_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
 // roughly 70% progress. Force the long-file path back through chunking.
 const MAX_DIRECT_CLOUD_AUDIO_SECONDS = CLOUD_CHUNK_DURATION_S;
 const IOS_SAFARI_CLOUD_CHUNK_DURATION_S = 180;
+const IOS_SAFARI_FORMDATA_CHUNK_DURATION_S = 90;
+const MAX_SAFE_FORMDATA_UPLOAD_BYTES = 3_500_000;
 const UNCOMPRESSED_CLOUD_CHUNK_DURATION_S = 180;
 // 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
 // Private mode still has to proxy through the function body → keep 4 MB.
@@ -1337,6 +1339,98 @@ export default function Home() {
             }
           };
 
+          const transcribeDirectFormDataBlob = async (
+            blob: Blob,
+            chunkIndex: number,
+            totalChunks: number,
+            fileName: string,
+          ): Promise<CloudTranscribeResponse> => {
+            const maxAttempts = MAX_CLOUD_REQUEST_RETRIES + 1;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              let response: Response;
+              const chunkFloor = (chunkIndex / totalChunks) * 100;
+              const chunkCeiling = ((chunkIndex + 0.97) / totalChunks) * 100;
+              const creepStartMs = Date.now();
+              const creepHandle = window.setInterval(() => {
+                if (requestId !== activeRequestIdRef.current) return;
+                const elapsed = (Date.now() - creepStartMs) / 1_000;
+                const t = 1 - Math.exp(-elapsed / 15);
+                const next = chunkFloor + (chunkCeiling - chunkFloor) * t;
+                setProgress((prev) => (next > prev ? next : prev));
+              }, 400);
+
+              const fetchTimeoutController = new AbortController();
+              const onOuterAbort = () => fetchTimeoutController.abort();
+              controller.signal.addEventListener("abort", onOuterAbort, { once: true });
+              const fetchTimeoutId = window.setTimeout(() => {
+                fetchTimeoutController.abort();
+              }, 90_000);
+
+              try {
+                const formData = new FormData();
+                formData.append("file", blob, fileName);
+                formData.append("language", selectedLanguage ?? "auto");
+
+                setLoadingDetail(
+                  totalChunks > 1
+                    ? `Transcribing chunk ${chunkIndex + 1} of ${totalChunks}...`
+                    : "Transcribing audio...",
+                );
+
+                response = await fetch("/api/transcribe", {
+                  method: "POST",
+                  body: formData,
+                  signal: fetchTimeoutController.signal,
+                });
+              } catch (requestError) {
+                if (controller.signal.aborted) {
+                  throw new DOMException("Aborted", "AbortError");
+                }
+
+                const hasAttemptsLeft = attempt < maxAttempts;
+                if (!hasAttemptsLeft) throw requestError;
+
+                const delayMs = retryDelayMs(attempt, null);
+                setLoadingDetail(
+                  `Cloud connection issue. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                );
+                await waitWithAbort(delayMs);
+                continue;
+              } finally {
+                window.clearInterval(creepHandle);
+                window.clearTimeout(fetchTimeoutId);
+                controller.signal.removeEventListener("abort", onOuterAbort);
+              }
+
+              if (response.ok) {
+                return (await response.json()) as CloudTranscribeResponse;
+              }
+
+              const data = (await response.json().catch(() => ({}))) as { error?: string };
+              const apiError = data.error || "Cloud transcription failed.";
+              const hasAttemptsLeft = attempt < maxAttempts;
+              const shouldRetry = response.status === 429 || response.status >= 500;
+
+              if (shouldRetry && hasAttemptsLeft) {
+                const delayMs = retryDelayMs(
+                  attempt,
+                  response.headers.get("retry-after"),
+                );
+                const reason = response.status === 429 ? "Cloud rate limit hit" : "Cloud is busy";
+                setLoadingDetail(
+                  `${reason}. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                );
+                await waitWithAbort(delayMs);
+                continue;
+              }
+
+              throw new Error(`HTTP ${response.status}: ${apiError}`);
+            }
+
+            throw new Error("Cloud transcription failed after multiple retries.");
+          };
+
           // Small mobile files can upload directly. Larger ones are decoded once,
           // then transcoded and sent to Blob storage chunk-by-chunk.
           let totalCloudChunks = 1;
@@ -1345,11 +1439,13 @@ export default function Home() {
           let sourceSamplesPerChunk = 0;
           let targetSamplesPerChunk = 0;
           const useOpusEncoding = isOpusOggEncodingSupported();
-
-          const canAttemptSingleBlobUpload = file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES;
+          const useSafariDirectTranscribe = preferFetchBlobUpload;
+          const canAttemptSingleBlobUpload = useSafariDirectTranscribe
+            ? file.size <= MAX_SAFE_FORMDATA_UPLOAD_BYTES
+            : file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES;
           let detectedDurationSeconds: number | null = null;
 
-          if (canAttemptSingleBlobUpload) {
+          if (useSafariDirectTranscribe || canAttemptSingleBlobUpload) {
             detectedDurationSeconds = await getAudioDurationSeconds(file);
             if (requestId !== activeRequestIdRef.current) return;
 
@@ -1367,7 +1463,11 @@ export default function Home() {
           const shouldUseSingleBlobUpload =
             canAttemptSingleBlobUpload &&
             (detectedDurationSeconds === null ||
-              detectedDurationSeconds <= MAX_DIRECT_CLOUD_AUDIO_SECONDS);
+              detectedDurationSeconds <= (
+                useSafariDirectTranscribe
+                  ? IOS_SAFARI_FORMDATA_CHUNK_DURATION_S
+                  : MAX_DIRECT_CLOUD_AUDIO_SECONDS
+              ));
 
           if (!shouldUseSingleBlobUpload) {
             if (file.size > MAX_MOBILE_DECODE_FILE_BYTES) {
@@ -1399,8 +1499,10 @@ export default function Home() {
             // so the per-chunk size budget is dominated by audio duration
             // rather than raw PCM bytes.
             const preferredChunkDurationSeconds = Math.min(
-              CLOUD_CHUNK_DURATION_S,
-              preferFetchBlobUpload
+              useSafariDirectTranscribe
+                ? IOS_SAFARI_FORMDATA_CHUNK_DURATION_S
+                : CLOUD_CHUNK_DURATION_S,
+              preferFetchBlobUpload && !useSafariDirectTranscribe
                 ? IOS_SAFARI_CLOUD_CHUNK_DURATION_S
                 : useOpusEncoding
                   ? CLOUD_CHUNK_DURATION_S
@@ -1427,6 +1529,115 @@ export default function Home() {
             );
           }
           setTotalChunks(totalCloudChunks);
+
+          if (useSafariDirectTranscribe) {
+            let combinedText = "";
+            const combinedSegments: TranscriptSegment[] = [];
+
+            for (let i = 0; i < totalCloudChunks; i++) {
+              if (abortControllerRef.current?.signal.aborted) break;
+
+              const isChunkedUpload = decodedAudioBuffer !== null;
+              let uploadBlob = file as Blob;
+              let offsetS = 0;
+              let uploadFileName = file.name;
+
+              if (isChunkedUpload && decodedAudioBuffer) {
+                const chunkStartSample = i * sourceSamplesPerChunk;
+                const chunkEndSample = Math.min(
+                  chunkStartSample + sourceSamplesPerChunk,
+                  decodedAudioBuffer.length,
+                );
+                let chunkData = extractMonoChunkFromAudioBuffer(
+                  decodedAudioBuffer,
+                  chunkStartSample,
+                  chunkEndSample,
+                );
+                if (sourceSampleRate !== TARGET_SAMPLE_RATE) {
+                  chunkData = resampleMonoAudio(
+                    chunkData,
+                    sourceSampleRate,
+                    TARGET_SAMPLE_RATE,
+                  );
+                }
+                if (chunkData.length > targetSamplesPerChunk) {
+                  chunkData = chunkData.slice(0, targetSamplesPerChunk);
+                }
+
+                if (useOpusEncoding) {
+                  try {
+                    uploadBlob = await encodeFloat32ToOpusOgg(
+                      chunkData,
+                      TARGET_SAMPLE_RATE,
+                    );
+                    uploadFileName = "chunk.ogg";
+                  } catch (opusError) {
+                    console.warn(
+                      "Opus encoding failed, falling back to WAV:",
+                      opusError,
+                    );
+                    uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
+                    uploadFileName = "chunk.wav";
+                  }
+                } else {
+                  uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
+                  uploadFileName = "chunk.wav";
+                }
+
+                offsetS = chunkStartSample / sourceSampleRate;
+              }
+
+              setLoadingDetail(
+                totalCloudChunks > 1
+                  ? `Preparing chunk ${i + 1} of ${totalCloudChunks}...`
+                  : "Preparing audio...",
+              );
+              setProcessedChunks(i);
+              setProgress((prev) => {
+                const next = (i / totalCloudChunks) * 100;
+                return next > prev ? next : prev;
+              });
+
+              if (requestId !== activeRequestIdRef.current) return;
+              const result = await transcribeDirectFormDataBlob(
+                uploadBlob,
+                i,
+                totalCloudChunks,
+                uploadFileName,
+              );
+
+              setProcessedChunks(i + 1);
+              setProgress((prev) => {
+                const next = ((i + 1) / totalCloudChunks) * 100;
+                return next > prev ? next : prev;
+              });
+
+              combinedText += (combinedText ? " " : "") + (result.text || "").trim();
+
+              if (Array.isArray(result.segments)) {
+                for (const seg of result.segments) {
+                  combinedSegments.push({
+                    text: seg.text,
+                    start: seg.start + offsetS,
+                    end: seg.end + offsetS,
+                  });
+                }
+              }
+            }
+
+            if (abortControllerRef.current?.signal.aborted) return;
+            if (requestId !== activeRequestIdRef.current) return;
+
+            setProgress(100);
+            setProcessedChunks(totalCloudChunks);
+            setOutput(combinedText);
+            setSegments(combinedSegments);
+            setStatus("ready");
+            setProgressPhase(null);
+            setIsViaCloud(false);
+            abortControllerRef.current = null;
+            return;
+          }
 
           setLoadingDetail("Starting secure cloud session...");
           // When we transcode chunks to Opus, the session-reserved pathname
