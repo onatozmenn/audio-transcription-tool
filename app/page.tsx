@@ -154,8 +154,11 @@ const MAX_DIRECT_CLOUD_AUDIO_SECONDS = CLOUD_CHUNK_DURATION_S;
 const IOS_SAFARI_CLOUD_CHUNK_DURATION_S = 180;
 const IOS_SAFARI_OPUS_FORMDATA_CHUNK_DURATION_S = 240;
 const IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S = 90;
+// Vercel serverless functions enforce a 4.5 MB request body limit.
+// Keep well under that ceiling so the FormData wrapper + field names
+// don't push us over.
 const MAX_SAFE_FORMDATA_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
-  ? 24 * 1024 * 1024
+  ? 4 * 1024 * 1024
   : 3_500_000;
 const UNCOMPRESSED_CLOUD_CHUNK_DURATION_S = 180;
 // 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
@@ -1469,12 +1472,7 @@ export default function Home() {
           let sourceSampleRate = TARGET_SAMPLE_RATE;
           let sourceSamplesPerChunk = 0;
           let targetSamplesPerChunk = 0;
-          // Safari direct FormData path is disabled — Vercel serverless
-          // functions enforce a 4.5 MB body limit, and mobile recordings
-          // easily exceed that. Always use the Blob upload path instead;
-          // the @vercel/blob client already runs with multipart:false to
-          // work around Safari-specific issues.
-          const useSafariDirectTranscribe = false;
+          const useSafariDirectTranscribe = preferFetchBlobUpload;
           const useOpusEncoding =
             isOpusOggEncodingSupported() && !useSafariDirectTranscribe;
           const canAttemptSingleBlobUpload = useSafariDirectTranscribe
