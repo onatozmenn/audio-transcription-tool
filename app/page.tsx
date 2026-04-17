@@ -1469,7 +1469,12 @@ export default function Home() {
           let sourceSampleRate = TARGET_SAMPLE_RATE;
           let sourceSamplesPerChunk = 0;
           let targetSamplesPerChunk = 0;
-          const useSafariDirectTranscribe = preferFetchBlobUpload;
+          // Safari direct FormData path is disabled — Vercel serverless
+          // functions enforce a 4.5 MB body limit, and mobile recordings
+          // easily exceed that. Always use the Blob upload path instead;
+          // the @vercel/blob client already runs with multipart:false to
+          // work around Safari-specific issues.
+          const useSafariDirectTranscribe = false;
           const useOpusEncoding =
             isOpusOggEncodingSupported() && !useSafariDirectTranscribe;
           const canAttemptSingleBlobUpload = useSafariDirectTranscribe
