@@ -780,6 +780,11 @@ export default function Home() {
   );
 
   const initializeWorker = useCallback(() => {
+    // Mobile uses cloud transcription — skip the heavy worker + model download.
+    if (typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+      return null;
+    }
+
     if (typeof Worker === "undefined") {
       queueMicrotask(() => {
         setStatus("error");
@@ -817,6 +822,9 @@ export default function Home() {
       setIsViaCloud(false);
       setStatus("ready");
       setActiveFileName(null);
+      // Cloud operation cancelled — no worker action needed.
+      window.setTimeout(() => setIsCancelling(false), 300);
+      return;
     }
 
     const isModelLoaded =
@@ -1355,6 +1363,7 @@ export default function Home() {
             chunkIndex: number,
             totalChunks: number,
             fileName: string,
+            sessionToken: string,
           ): Promise<CloudTranscribeResponse> => {
             const maxAttempts = MAX_CLOUD_REQUEST_RETRIES + 1;
 
@@ -1391,6 +1400,9 @@ export default function Home() {
 
                 response = await fetch("/api/transcribe", {
                   method: "POST",
+                  headers: {
+                    [TRANSCRIPTION_SESSION_HEADER]: sessionToken,
+                  },
                   body: formData,
                   signal: fetchTimeoutController.signal,
                 });
@@ -1557,6 +1569,20 @@ export default function Home() {
           setTotalChunks(totalCloudChunks);
 
           if (useSafariDirectTranscribe) {
+            // Create a session so the x-transcription-session header is
+            // present — Vercel edge bot protection requires it.
+            setLoadingDetail("Starting secure cloud session...");
+            const directSessionFileName =
+              decodedAudioBuffer !== null && useOpusEncoding ? "chunk.ogg" : file.name;
+            const directSession = await createCloudSession(
+              totalCloudChunks,
+              directSessionFileName,
+            );
+            if (requestId !== activeRequestIdRef.current) return;
+            if (directSession.grants.length !== totalCloudChunks) {
+              throw new Error("Cloud session could not reserve all upload chunks.");
+            }
+
             let combinedText = "";
             const combinedSegments: TranscriptSegment[] = [];
 
@@ -1630,6 +1656,7 @@ export default function Home() {
                 i,
                 totalCloudChunks,
                 uploadFileName,
+                directSession.grants[i].token,
               );
 
               setProcessedChunks(i + 1);
