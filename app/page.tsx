@@ -1112,31 +1112,64 @@ export default function Home() {
             // appear to reset between parts. Guard against visual oscillation
             // by only ever increasing the progress value within this chunk.
             let highestSeenPercentage = 0;
-            return upload(chunkGrant.pathname, blob, {
-              access: BLOB_UPLOAD_ACCESS,
-              handleUploadUrl: "/api/blob/upload",
-              contentType: blob.type || undefined,
-              // Force single-part PUT. @vercel/blob's automatic multipart path
-              // has been observed to hang on mobile Safari (the server-side
-              // "complete multipart" callback occasionally never resolves the
-              // client promise, blocking the subsequent /api/transcribe
-              // request). Our per-chunk payloads are already ≤ 24 MB so a
-              // single PUT is perfectly fine and far more reliable.
-              multipart: false,
-              headers: {
-                [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
-              },
-              abortSignal: controller.signal,
-              onUploadProgress: ({ percentage }) => {
-                if (requestId !== activeRequestIdRef.current) return;
-                if (percentage > highestSeenPercentage) {
-                  highestSeenPercentage = percentage;
-                }
-                const chunkProgress =
-                  uploadFloor + (uploadCeiling - uploadFloor) * (highestSeenPercentage / 100);
-                setProgress((prev) => (chunkProgress > prev ? chunkProgress : prev));
-              },
-            });
+
+            // Some mobile Safari builds never emit onUploadProgress events
+            // for the @vercel/blob client. Creep the bar linearly based on
+            // elapsed time so the user sees motion even when the browser
+            // stays silent. Caps at the upload ceiling so a real progress
+            // event can always overtake it.
+            const creepStartMs = Date.now();
+            // Assume a conservative 2 Mbps effective upload speed so a
+            // 20 MB chunk creeps to ~90% of the upload ceiling over ~80s.
+            const creepDurationMs = Math.max(20_000, (blob.size / (2 * 125_000)) * 1_000);
+            const creepHandle = window.setInterval(() => {
+              if (requestId !== activeRequestIdRef.current) return;
+              const elapsed = Date.now() - creepStartMs;
+              const fraction = Math.min(0.9, elapsed / creepDurationMs);
+              const creepTarget = uploadFloor + (uploadCeiling - uploadFloor) * fraction;
+              setProgress((prev) => (creepTarget > prev ? creepTarget : prev));
+            }, 400);
+
+            // Timeout guard: if the upload promise never resolves (mobile
+            // Safari + @vercel/blob multipart edge case), force-abort after
+            // a generous timeout so we fall into the retry loop instead of
+            // hanging forever.
+            const uploadTimeoutController = new AbortController();
+            const uploadTimeoutId = window.setTimeout(() => {
+              uploadTimeoutController.abort();
+            }, 120_000);
+            const onOuterAbort = () => uploadTimeoutController.abort();
+            controller.signal.addEventListener("abort", onOuterAbort, { once: true });
+
+            try {
+              return await upload(chunkGrant.pathname, blob, {
+                access: BLOB_UPLOAD_ACCESS,
+                handleUploadUrl: "/api/blob/upload",
+                contentType: blob.type || undefined,
+                // Force single-part PUT. @vercel/blob's automatic multipart
+                // path has been observed to hang on mobile Safari (the
+                // "complete multipart" promise occasionally never resolves
+                // client-side even though the server-side upload succeeded).
+                multipart: false,
+                headers: {
+                  [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
+                },
+                abortSignal: uploadTimeoutController.signal,
+                onUploadProgress: ({ percentage }) => {
+                  if (requestId !== activeRequestIdRef.current) return;
+                  if (percentage > highestSeenPercentage) {
+                    highestSeenPercentage = percentage;
+                  }
+                  const chunkProgress =
+                    uploadFloor + (uploadCeiling - uploadFloor) * (highestSeenPercentage / 100);
+                  setProgress((prev) => (chunkProgress > prev ? chunkProgress : prev));
+                },
+              });
+            } finally {
+              window.clearInterval(creepHandle);
+              window.clearTimeout(uploadTimeoutId);
+              controller.signal.removeEventListener("abort", onOuterAbort);
+            }
           };
 
           const transcribeCloudBlob = async (
@@ -1146,12 +1179,37 @@ export default function Home() {
             totalChunks: number,
           ): Promise<CloudTranscribeResponse> => {
             const maxAttempts = MAX_CLOUD_REQUEST_RETRIES + 1;
-            const uploadedBlob = await uploadCloudBlob(
-              blob,
-              chunkGrant,
-              chunkIndex,
-              totalChunks,
-            );
+
+            // Retry the upload itself (not just the transcribe call).
+            // Mobile Safari + @vercel/blob occasionally hang mid-upload;
+            // the inner uploadCloudBlob has its own 120s abort guard, so
+            // here we just retry with backoff when that guard fires.
+            let uploadedBlob: { url: string } | null = null;
+            for (let uploadAttempt = 1; uploadAttempt <= maxAttempts; uploadAttempt += 1) {
+              try {
+                uploadedBlob = await uploadCloudBlob(
+                  blob,
+                  chunkGrant,
+                  chunkIndex,
+                  totalChunks,
+                );
+                break;
+              } catch (uploadError) {
+                if (controller.signal.aborted) {
+                  throw new DOMException("Aborted", "AbortError");
+                }
+                const hasAttemptsLeft = uploadAttempt < maxAttempts;
+                if (!hasAttemptsLeft) throw uploadError;
+                const delayMs = retryDelayMs(uploadAttempt, null);
+                setLoadingDetail(
+                  `Upload stalled. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                );
+                await waitWithAbort(delayMs);
+              }
+            }
+            if (!uploadedBlob) {
+              throw new Error("Cloud upload failed after multiple retries.");
+            }
 
             try {
               for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
