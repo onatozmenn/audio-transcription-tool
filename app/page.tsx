@@ -564,12 +564,19 @@ export default function Home() {
   const [warmUpElapsed, setWarmUpElapsed] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [isViaCloud, setIsViaCloud] = useState(false);
+  const [preferFetchBlobUpload, setPreferFetchBlobUpload] = useState(false);
   // True if the model was successfully loaded in a previous session.
   // Stored in localStorage so page refresh doesn't re-show the loading UI.
   const [wasModelEverLoaded, setWasModelEverLoaded] = useState(false);
 
   useEffect(() => {
-    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+    const userAgent = navigator.userAgent;
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(userAgent));
+    setPreferFetchBlobUpload(
+      /iPhone|iPad|iPod/i.test(userAgent) &&
+      /AppleWebKit/i.test(userAgent) &&
+      !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(userAgent),
+    );
     if (typeof window !== "undefined" && localStorage.getItem("whisper_model_cached") === "1") {
       setWasModelEverLoaded(true);
     }
@@ -1147,7 +1154,7 @@ export default function Home() {
             controller.signal.addEventListener("abort", onOuterAbort, { once: true });
 
             try {
-              return await upload(chunkGrant.pathname, blob, {
+              const uploadOptions: Parameters<typeof upload>[2] = {
                 access: BLOB_UPLOAD_ACCESS,
                 handleUploadUrl: "/api/blob/upload",
                 contentType: blob.type || undefined,
@@ -1160,16 +1167,22 @@ export default function Home() {
                   [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
                 },
                 abortSignal: uploadTimeoutController.signal,
-                onUploadProgress: ({ percentage }) => {
-                  if (requestId !== activeRequestIdRef.current) return;
-                  if (percentage > highestSeenPercentage) {
-                    highestSeenPercentage = percentage;
-                  }
-                  const chunkProgress =
-                    uploadFloor + (uploadCeiling - uploadFloor) * (highestSeenPercentage / 100);
-                  setProgress((prev) => (chunkProgress > prev ? chunkProgress : prev));
-                },
-              });
+                ...(preferFetchBlobUpload
+                  ? {}
+                  : {
+                    onUploadProgress: ({ percentage }: { percentage: number }) => {
+                      if (requestId !== activeRequestIdRef.current) return;
+                      if (percentage > highestSeenPercentage) {
+                        highestSeenPercentage = percentage;
+                      }
+                      const chunkProgress =
+                        uploadFloor + (uploadCeiling - uploadFloor) * (highestSeenPercentage / 100);
+                      setProgress((prev) => (chunkProgress > prev ? chunkProgress : prev));
+                    },
+                  }),
+              };
+
+              return await upload(chunkGrant.pathname, blob, uploadOptions);
             } finally {
               window.clearInterval(creepHandle);
               window.clearTimeout(uploadTimeoutId);
@@ -1556,7 +1569,7 @@ export default function Home() {
         );
       }
     },
-    [cancelTranscription, clearProgressState, isMobile, selectedLanguage, status],
+    [cancelTranscription, clearProgressState, isMobile, preferFetchBlobUpload, selectedLanguage, status],
   );
 
   const handleFileSelected = useCallback(
