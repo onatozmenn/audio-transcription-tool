@@ -154,7 +154,9 @@ const MAX_DIRECT_CLOUD_AUDIO_SECONDS = CLOUD_CHUNK_DURATION_S;
 const IOS_SAFARI_CLOUD_CHUNK_DURATION_S = 180;
 const IOS_SAFARI_OPUS_FORMDATA_CHUNK_DURATION_S = 240;
 const IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S = 90;
-const MAX_SAFE_FORMDATA_UPLOAD_BYTES = 3_500_000;
+const MAX_SAFE_FORMDATA_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
+  ? 24 * 1024 * 1024
+  : 3_500_000;
 const UNCOMPRESSED_CLOUD_CHUNK_DURATION_S = 180;
 // 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
 // Private mode still has to proxy through the function body → keep 4 MB.
@@ -1463,7 +1465,13 @@ export default function Home() {
             : file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES;
           let detectedDurationSeconds: number | null = null;
 
-          if (useSafariDirectTranscribe || canAttemptSingleBlobUpload) {
+          if (useSafariDirectTranscribe) {
+            void getAudioDurationSeconds(file).then((duration) => {
+              if (requestId !== activeRequestIdRef.current) return;
+              if (duration === null) return;
+              setAudioDurationSeconds(Math.max(1, Math.round(duration)));
+            });
+          } else if (canAttemptSingleBlobUpload) {
             detectedDurationSeconds = await getAudioDurationSeconds(file);
             if (requestId !== activeRequestIdRef.current) return;
 
@@ -1479,13 +1487,11 @@ export default function Home() {
           }
 
           const shouldUseSingleBlobUpload =
-            canAttemptSingleBlobUpload &&
-            (detectedDurationSeconds === null ||
-              detectedDurationSeconds <= (
-                useSafariDirectTranscribe
-                  ? IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S
-                  : MAX_DIRECT_CLOUD_AUDIO_SECONDS
-              ));
+            useSafariDirectTranscribe
+              ? canAttemptSingleBlobUpload
+              : canAttemptSingleBlobUpload &&
+                (detectedDurationSeconds === null ||
+                  detectedDurationSeconds <= MAX_DIRECT_CLOUD_AUDIO_SECONDS);
 
           if (!shouldUseSingleBlobUpload) {
             if (file.size > MAX_MOBILE_DECODE_FILE_BYTES) {
