@@ -1,7 +1,14 @@
-export const MAX_AUDIO_FILE_BYTES = 4_500_000;
 export const BLOB_UPLOAD_ACCESS =
   process.env.NEXT_PUBLIC_BLOB_UPLOAD_ACCESS === "public" ? "public" : "private";
 export const USE_DIRECT_BLOB_URL_HANDOFF = BLOB_UPLOAD_ACCESS === "public";
+// Public mode: blob is uploaded directly to Blob storage (no 4.5 MB function
+// body limit) and Groq fetches the URL directly. Larger chunks reduce the
+// number of Groq API calls, which makes long recordings far less likely to
+// stall on per-minute rate limits.
+// Private mode: the audio has to be proxied through the function body → keep
+// the conservative 4.5 MB cap that fits under Vercel's serverless body limit.
+export const MAX_AUDIO_FILE_BYTES =
+  BLOB_UPLOAD_ACCESS === "public" ? 24 * 1024 * 1024 : 4_500_000;
 export const BLOB_UPLOAD_PATH_PREFIX = "transcriptions/";
 export const TRANSCRIPTION_SESSION_HEADER = "x-transcription-session";
 export const ALLOWED_AUDIO_CONTENT_TYPES = [

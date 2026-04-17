@@ -18,6 +18,10 @@ import {
   BLOB_UPLOAD_ACCESS,
   TRANSCRIPTION_SESSION_HEADER,
 } from "@/lib/cloud-transcription";
+import {
+  encodeFloat32ToOpusOgg,
+  isOpusOggEncodingSupported,
+} from "@/lib/opus-encoder";
 
 type WhisperLanguage =
   | "english"
@@ -125,11 +129,28 @@ const TARGET_SAMPLE_RATE = 16_000;
 const LOCAL_CHUNK_LENGTH_S = 30;
 const LOCAL_STRIDE_LENGTH_S = 5;
 const LOCAL_AUDIO_STEP_S = LOCAL_CHUNK_LENGTH_S - 2 * LOCAL_STRIDE_LENGTH_S;
-// Larger chunks reduce request count on mobile long recordings.
-const CLOUD_CHUNK_DURATION_S = 110;
-const MAX_CLOUD_DIRECT_UPLOAD_BYTES = 3 * 1024 * 1024;
-// Keep Blob uploads comfortably small for faster mobile retries and cleanup.
-const MAX_CLOUD_CHUNK_UPLOAD_BYTES = 4 * 1024 * 1024;
+// In public Blob mode, uploads go directly to Blob storage (bypassing the
+// 4.5MB Vercel function body limit) and Groq fetches the URL directly.
+// Larger chunks → far fewer API calls → much less chance of hitting Groq
+// per-minute rate limits on long recordings.
+const IS_PUBLIC_BLOB_MODE = BLOB_UPLOAD_ACCESS === "public";
+const CLOUD_CHUNK_DURATION_S = IS_PUBLIC_BLOB_MODE ? 600 : 110;
+// Threshold below which we upload the user's ORIGINAL (already-compressed)
+// file to Blob in a single request — no decode, no WAV re-encode. This is a
+// huge Blob-quota saver because typical mobile voice recordings (mp3/m4a/
+// opus) are ~64-128 kbps (≈ 30-60 MB / hour), much smaller than the 16-bit
+// PCM WAV we would otherwise produce (≈ 115 MB / hour).
+//
+// Groq whisper-large-v3 accepts up to 25 MB per request, so anything under
+// MAX_AUDIO_FILE_BYTES (24 MB in public mode) can be sent as-is.
+const MAX_CLOUD_DIRECT_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
+  ? 24 * 1024 * 1024
+  : 3 * 1024 * 1024;
+// 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
+// Private mode still has to proxy through the function body → keep 4 MB.
+const MAX_CLOUD_CHUNK_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
+  ? 20 * 1024 * 1024
+  : 4 * 1024 * 1024;
 const MAX_MOBILE_DECODE_FILE_BYTES = 90 * 1024 * 1024;
 const MAX_MOBILE_CLOUD_AUDIO_SECONDS = 2 * 60 * 60;
 const MAX_CLOUD_REQUEST_RETRIES = 6;
@@ -1186,6 +1207,7 @@ export default function Home() {
           let sourceSampleRate = TARGET_SAMPLE_RATE;
           let sourceSamplesPerChunk = 0;
           let targetSamplesPerChunk = 0;
+          const useOpusEncoding = isOpusOggEncodingSupported();
 
           if (file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES) {
             void getAudioDurationSeconds(file).then((duration) => {
@@ -1215,11 +1237,13 @@ export default function Home() {
             setAudioDurationSeconds(Math.max(1, Math.round(audioDuration)));
 
             // Keep each WAV chunk safely below the server body limit.
+            // When WebCodecs Opus is available we compress ~10× on the fly,
+            // so the per-chunk size budget is dominated by audio duration
+            // rather than raw PCM bytes.
             const desiredTargetSamplesPerChunk = CLOUD_CHUNK_DURATION_S * TARGET_SAMPLE_RATE;
-            const maxTargetSamplesPerChunk = Math.max(
-              1,
-              Math.floor((MAX_CLOUD_CHUNK_UPLOAD_BYTES - 44) / 2),
-            );
+            const maxTargetSamplesPerChunk = useOpusEncoding
+              ? desiredTargetSamplesPerChunk
+              : Math.max(1, Math.floor((MAX_CLOUD_CHUNK_UPLOAD_BYTES - 44) / 2));
             targetSamplesPerChunk = Math.max(
               1,
               Math.min(desiredTargetSamplesPerChunk, maxTargetSamplesPerChunk),
@@ -1275,7 +1299,25 @@ export default function Home() {
               if (chunkData.length > targetSamplesPerChunk) {
                 chunkData = chunkData.slice(0, targetSamplesPerChunk);
               }
-              uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
+              // Prefer Opus (≈10× smaller than PCM WAV). Fall back to WAV
+              // if the browser lacks WebCodecs or the encoder throws at
+              // runtime — either way the resulting Blob is accepted by Groq.
+              if (useOpusEncoding) {
+                try {
+                  uploadBlob = await encodeFloat32ToOpusOgg(
+                    chunkData,
+                    TARGET_SAMPLE_RATE,
+                  );
+                } catch (opusError) {
+                  console.warn(
+                    "Opus encoding failed, falling back to WAV:",
+                    opusError,
+                  );
+                  uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
+                }
+              } else {
+                uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
+              }
               offsetS = chunkStartSample / sourceSampleRate;
             }
 

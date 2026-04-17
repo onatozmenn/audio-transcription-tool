@@ -12,6 +12,11 @@ import {
 } from "@/lib/cloud-transcription";
 import { assertChunkPathname, getTranscriptionSessionToken } from "@/lib/transcription-session";
 
+// Long-audio chunks can take ~20-40s on Groq (fetch blob → transcribe → return).
+// Default Vercel function timeout (10s hobby / 15s pro) is not enough — bump
+// to 60s so individual chunk requests don't get cut off mid-flight.
+export const maxDuration = 60;
+
 const LANGUAGE_CODES: Record<string, string> = {
   english: "en",
   turkish: "tr",
@@ -243,7 +248,7 @@ export async function POST(req: Request) {
         Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
       },
       body: groqFormData,
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(55_000),
       cache: "no-store",
     });
 
