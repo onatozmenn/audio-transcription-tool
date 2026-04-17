@@ -1102,6 +1102,15 @@ export default function Home() {
             chunkIndex: number,
             totalChunks: number,
           ) => {
+            // Baseline progress at the start of this chunk's upload phase.
+            const uploadFloor = (chunkIndex / totalChunks) * 100;
+            // Upload is considered ~70% of a chunk's work; transcription
+            // (Groq fetch) is the remaining ~30%.
+            const uploadCeiling = ((chunkIndex + 0.7) / totalChunks) * 100;
+            // @vercel/blob multipart uploads emit per-part progress that can
+            // appear to reset between parts. Guard against visual oscillation
+            // by only ever increasing the progress value within this chunk.
+            let highestSeenPercentage = 0;
             return upload(chunkGrant.pathname, blob, {
               access: BLOB_UPLOAD_ACCESS,
               handleUploadUrl: "/api/blob/upload",
@@ -1112,7 +1121,12 @@ export default function Home() {
               abortSignal: controller.signal,
               onUploadProgress: ({ percentage }) => {
                 if (requestId !== activeRequestIdRef.current) return;
-                setProgress(((chunkIndex + percentage / 100) / totalChunks) * 100);
+                if (percentage > highestSeenPercentage) {
+                  highestSeenPercentage = percentage;
+                }
+                const chunkProgress =
+                  uploadFloor + (uploadCeiling - uploadFloor) * (highestSeenPercentage / 100);
+                setProgress((prev) => (chunkProgress > prev ? chunkProgress : prev));
               },
             });
           };
@@ -1327,7 +1341,10 @@ export default function Home() {
                 : "Uploading audio securely...",
             );
             setProcessedChunks(i);
-            setProgress((i / totalCloudChunks) * 100);
+            setProgress((prev) => {
+              const next = (i / totalCloudChunks) * 100;
+              return next > prev ? next : prev;
+            });
 
             if (requestId !== activeRequestIdRef.current) return;
             const chunkGrant = cloudSession.grants[i];
@@ -1342,7 +1359,10 @@ export default function Home() {
               totalCloudChunks,
             );
             setProcessedChunks(i + 1);
-            setProgress(((i + 1) / totalCloudChunks) * 100);
+            setProgress((prev) => {
+              const next = ((i + 1) / totalCloudChunks) * 100;
+              return next > prev ? next : prev;
+            });
 
             combinedText += (combinedText ? " " : "") + (result.text || "").trim();
 
