@@ -256,7 +256,12 @@ export async function POST(req: Request) {
       const errorData = await response.json().catch(() => ({}));
       const errorMessage =
         errorData?.error?.message || "Failed to transcribe audio on Groq.";
-      return jsonError(errorMessage, response.status);
+      const retryAfter = response.headers.get("retry-after");
+      return jsonError(
+        errorMessage,
+        response.status,
+        retryAfter ? { "Retry-After": retryAfter } : {},
+      );
     }
 
     const data = (await response.json()) as GroqResponse;

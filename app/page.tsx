@@ -152,7 +152,8 @@ const MAX_CLOUD_DIRECT_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
 // roughly 70% progress. Force the long-file path back through chunking.
 const MAX_DIRECT_CLOUD_AUDIO_SECONDS = CLOUD_CHUNK_DURATION_S;
 const IOS_SAFARI_CLOUD_CHUNK_DURATION_S = 180;
-const IOS_SAFARI_FORMDATA_CHUNK_DURATION_S = 90;
+const IOS_SAFARI_OPUS_FORMDATA_CHUNK_DURATION_S = 240;
+const IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S = 90;
 const MAX_SAFE_FORMDATA_UPLOAD_BYTES = 3_500_000;
 const UNCOMPRESSED_CLOUD_CHUNK_DURATION_S = 180;
 // 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
@@ -1318,15 +1319,23 @@ export default function Home() {
                 const shouldRetry = response.status === 429 || response.status >= 500;
 
                 if (shouldRetry && hasAttemptsLeft) {
+                  const retryAfterHeader = response.headers.get("retry-after");
                   const delayMs = retryDelayMs(
                     attempt,
-                    response.headers.get("retry-after"),
+                    retryAfterHeader,
                   );
+                  const effectiveDelayMs =
+                    response.status === 429
+                      ? Math.max(
+                        delayMs,
+                        retryAfterHeader ? 0 : Math.min(60_000, 20_000 * attempt),
+                      )
+                      : delayMs;
                   const reason = response.status === 429 ? "Cloud rate limit hit" : "Cloud is busy";
                   setLoadingDetail(
-                    `${reason}. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                    `${reason}. Retrying in ${Math.ceil(effectiveDelayMs / 1_000)}s...`,
                   );
-                  await waitWithAbort(delayMs);
+                  await waitWithAbort(effectiveDelayMs);
                   continue;
                 }
 
@@ -1413,15 +1422,23 @@ export default function Home() {
               const shouldRetry = response.status === 429 || response.status >= 500;
 
               if (shouldRetry && hasAttemptsLeft) {
+                const retryAfterHeader = response.headers.get("retry-after");
                 const delayMs = retryDelayMs(
                   attempt,
-                  response.headers.get("retry-after"),
+                  retryAfterHeader,
                 );
+                const effectiveDelayMs =
+                  response.status === 429
+                    ? Math.max(
+                      delayMs,
+                      retryAfterHeader ? 0 : Math.min(60_000, 20_000 * attempt),
+                    )
+                    : delayMs;
                 const reason = response.status === 429 ? "Cloud rate limit hit" : "Cloud is busy";
                 setLoadingDetail(
-                  `${reason}. Retrying in ${Math.ceil(delayMs / 1_000)}s...`,
+                  `${reason}. Retrying in ${Math.ceil(effectiveDelayMs / 1_000)}s...`,
                 );
-                await waitWithAbort(delayMs);
+                await waitWithAbort(effectiveDelayMs);
                 continue;
               }
 
@@ -1465,7 +1482,7 @@ export default function Home() {
             (detectedDurationSeconds === null ||
               detectedDurationSeconds <= (
                 useSafariDirectTranscribe
-                  ? IOS_SAFARI_FORMDATA_CHUNK_DURATION_S
+                  ? IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S
                   : MAX_DIRECT_CLOUD_AUDIO_SECONDS
               ));
 
@@ -1500,7 +1517,9 @@ export default function Home() {
             // rather than raw PCM bytes.
             const preferredChunkDurationSeconds = Math.min(
               useSafariDirectTranscribe
-                ? IOS_SAFARI_FORMDATA_CHUNK_DURATION_S
+                ? (useOpusEncoding
+                  ? IOS_SAFARI_OPUS_FORMDATA_CHUNK_DURATION_S
+                  : IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S)
                 : CLOUD_CHUNK_DURATION_S,
               preferFetchBlobUpload && !useSafariDirectTranscribe
                 ? IOS_SAFARI_CLOUD_CHUNK_DURATION_S
