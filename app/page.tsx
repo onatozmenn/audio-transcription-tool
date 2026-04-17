@@ -1455,8 +1455,9 @@ export default function Home() {
           let sourceSampleRate = TARGET_SAMPLE_RATE;
           let sourceSamplesPerChunk = 0;
           let targetSamplesPerChunk = 0;
-          const useOpusEncoding = isOpusOggEncodingSupported();
           const useSafariDirectTranscribe = preferFetchBlobUpload;
+          const useOpusEncoding =
+            isOpusOggEncodingSupported() && !useSafariDirectTranscribe;
           const canAttemptSingleBlobUpload = useSafariDirectTranscribe
             ? file.size <= MAX_SAFE_FORMDATA_UPLOAD_BYTES
             : file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES;
