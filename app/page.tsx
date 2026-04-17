@@ -1024,6 +1024,7 @@ export default function Home() {
 
           const createCloudSession = async (
             totalChunks: number,
+            sessionFileName: string,
           ): Promise<TranscriptionSessionResponse> => {
             const maxAttempts = 3;
 
@@ -1034,7 +1035,7 @@ export default function Home() {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    fileName: file.name,
+                    fileName: sessionFileName,
                     totalChunks,
                   }),
                   signal: controller.signal,
@@ -1276,7 +1277,16 @@ export default function Home() {
           setTotalChunks(totalCloudChunks);
 
           setLoadingDetail("Starting secure cloud session...");
-          const cloudSession = await createCloudSession(totalCloudChunks);
+          // When we transcode chunks to Opus, the session-reserved pathname
+          // MUST end in .ogg so Groq's URL-based upload treats the payload
+          // as Ogg/Opus rather than guessing from the original extension.
+          const isChunkedCloudUpload = decodedAudioBuffer !== null;
+          const sessionFileName =
+            isChunkedCloudUpload && useOpusEncoding ? "chunk.ogg" : file.name;
+          const cloudSession = await createCloudSession(
+            totalCloudChunks,
+            sessionFileName,
+          );
           if (requestId !== activeRequestIdRef.current) return;
           if (cloudSession.grants.length !== totalCloudChunks) {
             throw new Error("Cloud session could not reserve all upload chunks.");
