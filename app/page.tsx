@@ -1116,6 +1116,13 @@ export default function Home() {
               access: BLOB_UPLOAD_ACCESS,
               handleUploadUrl: "/api/blob/upload",
               contentType: blob.type || undefined,
+              // Force single-part PUT. @vercel/blob's automatic multipart path
+              // has been observed to hang on mobile Safari (the server-side
+              // "complete multipart" callback occasionally never resolves the
+              // client promise, blocking the subsequent /api/transcribe
+              // request). Our per-chunk payloads are already ≤ 24 MB so a
+              // single PUT is perfectly fine and far more reliable.
+              multipart: false,
               headers: {
                 [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
               },
@@ -1149,6 +1156,31 @@ export default function Home() {
             try {
               for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
                 let response: Response;
+                // Visually creep the progress bar from the upload-finished
+                // floor up toward (but not reaching) the chunk-complete
+                // ceiling while waiting for Groq. Prevents the bar from
+                // looking frozen during the 10-40s transcription call.
+                const transcribeFloor = ((chunkIndex + 0.7) / totalChunks) * 100;
+                const transcribeCeiling = ((chunkIndex + 0.97) / totalChunks) * 100;
+                const creepStartMs = Date.now();
+                const creepHandle = window.setInterval(() => {
+                  if (requestId !== activeRequestIdRef.current) return;
+                  // Asymptote at transcribeCeiling over ~45s.
+                  const elapsed = (Date.now() - creepStartMs) / 1_000;
+                  const t = 1 - Math.exp(-elapsed / 15);
+                  const next = transcribeFloor + (transcribeCeiling - transcribeFloor) * t;
+                  setProgress((prev) => (next > prev ? next : prev));
+                }, 400);
+                // Client-side timeout guard. /api/transcribe has a 60s
+                // serverless maxDuration; give the fetch an extra ~30s
+                // margin before we assume the request is stuck and retry.
+                const fetchTimeoutController = new AbortController();
+                const onOuterAbort = () => fetchTimeoutController.abort();
+                controller.signal.addEventListener("abort", onOuterAbort, { once: true });
+                const fetchTimeoutId = window.setTimeout(() => {
+                  fetchTimeoutController.abort();
+                }, 90_000);
+
                 try {
                   setLoadingDetail(
                     totalChunks > 1
@@ -1166,11 +1198,12 @@ export default function Home() {
                       blobUrl: uploadedBlob.url,
                       language: selectedLanguage ?? "auto",
                     }),
-                    signal: controller.signal,
+                    signal: fetchTimeoutController.signal,
                   });
                 } catch (requestError) {
-                  if (requestError instanceof DOMException && requestError.name === "AbortError") {
-                    throw requestError;
+                  // If the outer user cancel fired, propagate as abort.
+                  if (controller.signal.aborted) {
+                    throw new DOMException("Aborted", "AbortError");
                   }
 
                   const hasAttemptsLeft = attempt < maxAttempts;
@@ -1182,6 +1215,10 @@ export default function Home() {
                   );
                   await waitWithAbort(delayMs);
                   continue;
+                } finally {
+                  window.clearInterval(creepHandle);
+                  window.clearTimeout(fetchTimeoutId);
+                  controller.signal.removeEventListener("abort", onOuterAbort);
                 }
 
                 if (response.ok) {
