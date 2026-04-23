@@ -2227,8 +2227,8 @@ export default function Home() {
             </div>
           </div>
           <p className="max-w-2xl text-sm leading-6 text-neutral-300 sm:text-base">
-            Convert audio to text online for free using Whisper AI. Transcribe MP3, WAV, M4A and
-            more. Desktop runs locally; mobile uses secure cloud transcription with temporary
+            Convert audio to text online for free using Whisper & Moonshine AI. Transcribe MP3, WAV, M4A and
+            more. Desktop runs locally (Moonshine for English, Whisper for other languages); mobile uses secure cloud transcription with temporary
             Blob uploads. No sign-up.
           </p>
           <h2 className="text-base font-semibold text-neutral-200 sm:text-xl">
@@ -2244,7 +2244,7 @@ export default function Home() {
               <h3 className="text-sm font-medium text-neutral-200">Audio to Text Transcription</h3>
             </div>
             <p className="text-xs leading-relaxed text-neutral-400">
-              Transcribe audio files to text instantly using Whisper AI.
+              Transcribe audio files to text instantly using Whisper & Moonshine AI.
             </p>
           </div>
 
@@ -2851,7 +2851,7 @@ export default function Home() {
           </div>
         </div>
         <p className="mt-2 text-xs text-neutral-500">
-          Free audio transcription tool powered by Whisper AI. Convert audio to text online instantly.
+          Free audio transcription tool powered by Whisper & Moonshine AI. Convert audio to text online instantly.
         </p>
         <p className="mt-1 text-xs text-neutral-500">
           Supports speech to text, audio transcription, and subtitle generation.

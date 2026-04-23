@@ -13,7 +13,7 @@ const SOCIAL_IMAGE_PATH = "/opengraph-image";
 const APP_NAME = "Free Audio Transcription Tool";
 const SEO_TITLE = "Free Audio Transcription Tool - Speech to Text Online (No Sign-up)";
 const SEO_DESCRIPTION =
-  "Convert audio to text online for free with Whisper AI. Transcribe MP3, WAV, M4A, MP4, OGG and more. Desktop runs locally; mobile uses secure cloud transcription.";
+  "Convert audio to text online for free with Whisper & Moonshine AI. Transcribe MP3, WAV, M4A, MP4, OGG and more. Desktop runs locally (Moonshine for English, Whisper for other languages); mobile uses secure cloud transcription.";
 const SEO_KEYWORDS = [
   "free audio transcription tool",
   "audio transcription online",
@@ -35,6 +35,8 @@ const SEO_KEYWORDS = [
   "subtitle transcript generator",
   "whisper ai transcription",
   "whisper speech to text",
+  "moonshine ai transcription",
+  "moonshine speech to text",
   "browser based transcription",
   "client side transcription",
   "private audio transcription",
@@ -135,7 +137,7 @@ const webApplicationJsonLd = {
     "Secure cloud fallback on mobile",
     "Private and secure",
     "Works offline after first load",
-    "AI-powered by Whisper",
+    "AI-powered by Whisper & Moonshine",
     "Mobile friendly",
     "Supports MP3, WAV, M4A, MP4, OGG, FLAC, AAC, WEBM, OPUS",
   ],
