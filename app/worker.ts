@@ -24,13 +24,14 @@ type TranscriptSegment = {
 };
 
 type WorkerRequest =
-  | { type: "load" }
+  | { type: "load"; model?: string }
   | { type: "cancel"; requestId: number }
   | {
     type: "transcribe";
     requestId: number;
     audio: Float32Array;
     language?: "auto" | WhisperLanguage;
+    model?: string;
   };
 
 type WorkerStatus = "loading" | "ready" | "transcribing" | "error";
@@ -57,7 +58,8 @@ type WorkerResponse =
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const ASR_MODEL_ID = "Xenova/whisper-small";
+const WHISPER_MODEL_ID = "Xenova/whisper-small";
+const MOONSHINE_MODEL_ID = "onnx-community/moonshine-base-ONNX";
 const CHUNK_LENGTH_S = 30;
 const STRIDE_LENGTH_S = 5;
 const SAMPLE_RATE = 16_000;
@@ -88,7 +90,10 @@ const workerScope = self as unknown as WorkerScope;
 
 let transcriberPromise: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
 /** Tracks which device the active pipeline was initialised on. */
-let activeDevice: "webgpu" | "wasm" | null = null;/** When set, the transcription loop for this requestId should abort after the current window. */
+let activeDevice: "webgpu" | "wasm" | null = null;
+/** Tracks which model is currently loaded. */
+let activeModelId: string | null = null;
+/** When set, the transcription loop for this requestId should abort after the current window. */
 let abortRequestId: number | null = null;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -228,6 +233,7 @@ function onDownloadProgress(info: DownloadProgressInfo): void {
 
 async function buildPipeline(
   device: "webgpu" | "wasm",
+  modelId: string,
 ): Promise<AutomaticSpeechRecognitionPipeline> {
   postToMain({
     type: "status",
@@ -235,20 +241,29 @@ async function buildPipeline(
     detail: `Initialising model on ${device.toUpperCase()}…`,
   });
 
-  // WebGPU: fp16 encoder + q4 decoder — fp16 is native to GPU shaders and
-  // ~2× faster than fp32 with negligible accuracy difference on whisper-small.
+  const isMoonshine = modelId === MOONSHINE_MODEL_ID;
+
+  // WebGPU: fp16 encoder + q4 decoder for Whisper — fp16 is native to GPU
+  // shaders and ~2× faster than fp32 with negligible accuracy difference.
+  // Moonshine is small enough (~61M) to run without explicit dtype on WebGPU.
   // WASM fallback: q8 quantisation for acceptable CPU-only inference speed.
   const options =
     device === "webgpu"
-      ? {
-        dtype: {
-          encoder_model: "fp16" as const,
-          decoder_model_merged: "q4" as const,
-        },
-        device: "webgpu" as const,
-        progress_callback: onDownloadProgress,
-        session_options: { logSeverityLevel: 3 as const },
-      }
+      ? (isMoonshine
+        ? {
+          device: "webgpu" as const,
+          progress_callback: onDownloadProgress,
+          session_options: { logSeverityLevel: 3 as const },
+        }
+        : {
+          dtype: {
+            encoder_model: "fp16" as const,
+            decoder_model_merged: "q4" as const,
+          },
+          device: "webgpu" as const,
+          progress_callback: onDownloadProgress,
+          session_options: { logSeverityLevel: 3 as const },
+        })
       : {
         dtype: "q8" as const,
         device: "wasm" as const,
@@ -260,7 +275,7 @@ async function buildPipeline(
   // @huggingface/transformers v3 pipeline overloads produce for TS.
   return pipeline(
     "automatic-speech-recognition",
-    ASR_MODEL_ID,
+    modelId,
     options,
   ) as unknown as Promise<AutomaticSpeechRecognitionPipeline>;
 }
@@ -269,11 +284,25 @@ async function buildPipeline(
  *  skip the "loading" flash when the model is already ready in memory. */
 let isPipelineReady = false;
 
-async function getTranscriber(): Promise<AutomaticSpeechRecognitionPipeline> {
+async function getTranscriber(requestedModelId?: string): Promise<AutomaticSpeechRecognitionPipeline> {
+  const modelId = requestedModelId ?? WHISPER_MODEL_ID;
+
+  // If the requested model differs from the loaded one, dispose and reload.
+  if (activeModelId !== null && activeModelId !== modelId && transcriberPromise) {
+    try {
+      const oldPipeline = await transcriberPromise;
+      await oldPipeline.dispose();
+    } catch { /* best-effort cleanup */ }
+    transcriberPromise = null;
+    isPipelineReady = false;
+    activeDevice = null;
+    activeModelId = null;
+  }
+
   // If the model is already fully ready, skip posting "loading" and jump
   // straight to "ready" — this avoids the brief loading flash when the
   // user changes language after the first successful load.
-  if (isPipelineReady && transcriberPromise) {
+  if (isPipelineReady && transcriberPromise && activeModelId === modelId) {
     const transcriber = await transcriberPromise;
     postToMain({
       type: "status",
@@ -284,12 +313,13 @@ async function getTranscriber(): Promise<AutomaticSpeechRecognitionPipeline> {
   }
 
   if (!transcriberPromise) {
+    activeModelId = modelId;
     postToMain({ type: "status", status: "loading", detail: "Initialising model…" });
 
     transcriberPromise = (async () => {
       // ── Try WebGPU first; gracefully fall back to WASM when unsupported ──
       try {
-        const transcriber = await buildPipeline("webgpu");
+        const transcriber = await buildPipeline("webgpu", modelId);
         activeDevice = "webgpu";
         return transcriber;
       } catch (webGpuError) {
@@ -302,7 +332,7 @@ async function getTranscriber(): Promise<AutomaticSpeechRecognitionPipeline> {
           status: "loading",
           detail: "WebGPU not available — falling back to WASM…",
         });
-        const transcriber = await buildPipeline("wasm");
+        const transcriber = await buildPipeline("wasm", modelId);
         activeDevice = "wasm";
         return transcriber;
       }
@@ -323,6 +353,7 @@ async function getTranscriber(): Promise<AutomaticSpeechRecognitionPipeline> {
     transcriberPromise = null;
     isPipelineReady = false;
     activeDevice = null;
+    activeModelId = null;
     const msg = errorMessage(error);
     postToMain({ type: "status", status: "error", detail: msg });
     postToMain({ type: "error", error: msg });
@@ -337,7 +368,7 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
 
   if (message.type === "load") {
     try {
-      await getTranscriber();
+      await getTranscriber(message.model);
     } catch {
       // Errors are already posted from getTranscriber().
     }
@@ -356,7 +387,8 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
   abortRequestId = null; // clear any stale abort from a previous run
 
   try {
-    const transcriber = await getTranscriber();
+    const transcriber = await getTranscriber(message.model);
+    const isMoonshine = activeModelId === MOONSHINE_MODEL_ID;
     postToMain({ type: "status", status: "transcribing", requestId, device: activeDevice ?? undefined });
 
     // ── Own 30-second windowing with overlap ─────────────────────────────────
@@ -430,30 +462,45 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
       const win = windows[i];
 
       try {
-        const result = await transcriber(win.data, {
-          return_timestamps: true,
-          // chunk_length_s = 30 → the standard Whisper window size.
-          // Since every window is already ≤ 30 s the pipeline will treat it
-          // as a single internal chunk with no further sub-windowing.
-          chunk_length_s: CHUNK_LENGTH_S,
-          stride_length_s: 0,
-          // Greedy decoding – one forward pass per chunk, no beam-search overhead.
-          temperature: 0,
-          num_beams: 1,
-          language: languageHint && languageHint !== "auto" ? languageHint : undefined,
-        } as Record<string, unknown>);
+        // Moonshine: no timestamps, no language, no chunking params.
+        // Whisper: full options with timestamps, language, and chunking.
+        const pipelineOptions = isMoonshine
+          ? ({} as Record<string, unknown>)
+          : ({
+            return_timestamps: true,
+            chunk_length_s: CHUNK_LENGTH_S,
+            stride_length_s: 0,
+            temperature: 0,
+            num_beams: 1,
+            language: languageHint && languageHint !== "auto" ? languageHint : undefined,
+          } as Record<string, unknown>);
+
+        const result = await transcriber(win.data, pipelineOptions);
 
         const normalized = Array.isArray(result) ? result[0] : result;
 
         // ── Collect segments and offset timestamps ──────────────────────────
-        const rawChunks = Array.isArray(normalized?.chunks) ? normalized.chunks : [];
-        for (const chunk of rawChunks) {
-          const text = typeof chunk.text === "string" ? chunk.text.trim() : "";
-          if (!text) continue;
-          const ts = Array.isArray(chunk.timestamp) ? chunk.timestamp : [0, 0];
-          const start = toSafeTimestamp(ts[0], 0) + win.offsetS;
-          const end = toSafeTimestamp(ts[1], toSafeTimestamp(ts[0], 0)) + win.offsetS;
-          allSegments.push({ text, start, end });
+        if (isMoonshine) {
+          // Moonshine doesn't produce per-segment timestamps — create
+          // a synthetic segment spanning the entire window.
+          const segText = normalizeWhitespace(normalized?.text ?? "");
+          if (segText) {
+            allSegments.push({
+              text: segText,
+              start: win.offsetS,
+              end: win.offsetS + win.data.length / SAMPLE_RATE,
+            });
+          }
+        } else {
+          const rawChunks = Array.isArray(normalized?.chunks) ? normalized.chunks : [];
+          for (const chunk of rawChunks) {
+            const text = typeof chunk.text === "string" ? chunk.text.trim() : "";
+            if (!text) continue;
+            const ts = Array.isArray(chunk.timestamp) ? chunk.timestamp : [0, 0];
+            const start = toSafeTimestamp(ts[0], 0) + win.offsetS;
+            const end = toSafeTimestamp(ts[1], toSafeTimestamp(ts[0], 0)) + win.offsetS;
+            allSegments.push({ text, start, end });
+          }
         }
 
         // ── Live preview ────────────────────────────────────────────────────

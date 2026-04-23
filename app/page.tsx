@@ -53,6 +53,7 @@ type WorkerRequest =
     requestId: number;
     audio: Float32Array;
     language?: "auto" | WhisperLanguage;
+    model?: string;
   };
 
 type TranscriptSegment = {
@@ -61,7 +62,7 @@ type TranscriptSegment = {
   end: number;
 };
 
-type TranscriptModel = "Xenova/whisper-small" | "openai/whisper-large-v3" | null;
+type TranscriptModel = "Xenova/whisper-small" | "onnx-community/moonshine-base-ONNX" | "openai/whisper-large-v3" | null;
 
 type TranscriptExportJson = {
   version: 1;
@@ -537,6 +538,7 @@ export default function Home() {
   const isTurkishPage = pathname === "/tr" || pathname.startsWith("/tr/");
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef(0);
+  const loadedModelRef = useRef<string | null>(null);
   const copyResetTimeoutRef = useRef<number | null>(null);
   const outputTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
@@ -575,6 +577,12 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [isViaCloud, setIsViaCloud] = useState(false);
   const [preferFetchBlobUpload, setPreferFetchBlobUpload] = useState(false);
+
+  // Desktop: use Moonshine (smaller/faster) for English, Whisper for other languages.
+  const desiredLocalModel = useMemo(
+    () => selectedLanguage === "english" ? "onnx-community/moonshine-base-ONNX" : "Xenova/whisper-small",
+    [selectedLanguage],
+  );
   // True if the model was successfully loaded in a previous session.
   // Stored in localStorage so page refresh doesn't re-show the loading UI.
   const [wasModelEverLoaded, setWasModelEverLoaded] = useState(false);
@@ -611,13 +619,14 @@ export default function Home() {
     if (!selectedLanguage || isMobile) return;
     const worker = workerRef.current;
     if (!worker) return;
-    // Only send a load request when truly idle (never loaded yet).
-    // If the model is already ready/loaded, changing language doesn't
-    // require reloading — Whisper language is passed per-transcription call.
-    if (status !== "idle") return;
-    const loadRequest: WorkerRequest = { type: "load" };
-    worker.postMessage(loadRequest);
-  }, [selectedLanguage, isMobile, status]);
+    // Send load on first language selection (idle) or when the desired model
+    // changes while already ready (e.g. switching between English/other).
+    if (status === "idle" || (status === "ready" && loadedModelRef.current !== desiredLocalModel)) {
+      const loadRequest: WorkerRequest = { type: "load", model: desiredLocalModel };
+      worker.postMessage(loadRequest);
+      loadedModelRef.current = desiredLocalModel;
+    }
+  }, [selectedLanguage, isMobile, status, desiredLocalModel]);
 
 
 
@@ -859,8 +868,9 @@ export default function Home() {
       }
       const newWorker = initializeWorker();
       if (selectedLanguage && newWorker) {
-        const loadRequest: WorkerRequest = { type: "load" };
+        const loadRequest: WorkerRequest = { type: "load", model: desiredLocalModel };
         newWorker.postMessage(loadRequest);
+        loadedModelRef.current = desiredLocalModel;
       }
       setStatus("idle");
     }
@@ -868,7 +878,7 @@ export default function Home() {
     window.setTimeout(() => {
       setIsCancelling(false);
     }, 300);
-  }, [clearProgressState, initializeWorker, isViaCloud, selectedLanguage, status]);
+  }, [clearProgressState, initializeWorker, isViaCloud, selectedLanguage, status, desiredLocalModel]);
 
   useEffect(() => {
     initializeWorker();
@@ -1839,7 +1849,7 @@ export default function Home() {
       }
 
       setStatus("decoding");
-      setLastTranscriptionModel("Xenova/whisper-small");
+      setLastTranscriptionModel(desiredLocalModel as TranscriptModel);
 
       try {
         const audioData = await decodeAudioFile(file);
@@ -1851,6 +1861,7 @@ export default function Home() {
           requestId,
           audio: audioData,
           language: selectedLanguage ?? "english",
+          model: desiredLocalModel,
         };
         workerRef.current?.postMessage(request, [audioData.buffer]);
       } catch (decodeError) {
