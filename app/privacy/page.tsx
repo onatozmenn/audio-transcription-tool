@@ -21,7 +21,7 @@ const Section = ({
 );
 
 export default function PrivacyPolicy() {
-    const updated = "February 21, 2026";
+    const updated = "April 27, 2026";
 
     return (
         <main className="flex min-h-screen items-start justify-center px-4 py-12 sm:px-6">
@@ -56,37 +56,41 @@ export default function PrivacyPolicy() {
                 <div className="divide-y divide-white/5 space-y-8">
 
                     <div className="pt-8 space-y-3">
-                        <Section title="Privacy Overview">
+                        <Section title="Overview">
                             <p>
-                                This tool is designed with a strong commitment to user privacy.
-                                <span className="font-medium text-neutral-200">We do not collect any personal data.</span>
-                                All audio processing for transcription happens either directly in your browser (desktop) or via a
-                                secure mobile flow that uses temporary Blob storage only for the time needed to complete transcription.
+                                This tool is built with privacy as a core principle.{" "}
+                                <span className="font-medium text-neutral-200">We do not collect any personal data.</span>{" "}
+                                How your audio is handled depends on the device you are using:
+                            </p>
+                            <ul className="list-disc space-y-2 pl-5">
+                                <li>
+                                    <span className="font-medium text-neutral-200">On Desktop:</span> All transcription happens entirely inside your browser using Whisper Small or Moonshine AI models. No audio, text, or personal information is ever sent to a server.
+                                </li>
+                                <li>
+                                    <span className="font-medium text-neutral-200">On Mobile:</span> Due to hardware limitations, your audio is uploaded to temporary storage, transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">Groq Cloud</a> (Whisper Large V3), and then deleted. Groq does not use your data to train their models.
+                                </li>
+                            </ul>
+                        </Section>
+                    </div>
+
+                    <div className="pt-8 space-y-3">
+                        <Section title="How Transcription Works">
+                            <p>
+                                <span className="font-medium text-neutral-200">Desktop:</span> Audio is decoded and processed entirely within your browser. English audio uses the Moonshine Base model (fast, lightweight); other languages use the Whisper Small model. Both run via WebGPU (with WASM fallback). The AI model is downloaded once from Hugging Face and cached in your browser — after that, transcription works fully offline.
+                            </p>
+                            <p className="mt-2">
+                                <span className="font-medium text-neutral-200">Mobile:</span> Audio is chunked and uploaded directly from your device into a temporary Vercel Blob object. The server sends the audio to Groq for transcription. After processing completes, the temporary upload is deleted and only the text is returned to your device.
                             </p>
                         </Section>
                     </div>
 
                     <div className="pt-8 space-y-3">
-                        <Section title="Overview">
+                        <Section title="Export & Continue with AI">
                             <p>
-                                This tool is built with privacy as a core principle. How your data is handled depends on the device you are using:
-                            </p>
-                            <ul className="list-disc space-y-2 pl-5">
-                                <li>
-                                    <span className="font-medium text-neutral-200">On Desktop:</span> All transcription happens entirely inside your browser. No audio data, text, or any other personal information is ever sent to a server.
-                                </li>
-                                <li>
-                                    <span className="font-medium text-neutral-200">On Mobile:</span> Due to hardware limitations on phones, your audio is uploaded to a temporary Blob file, transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">Groq Cloud</a>, and then deleted. Groq does not use your data to train their models.
-                                </li>
-                            </ul>
-                        </Section>
-
-                        <Section title="How Transcription Works">
-                            <p>
-                                <span className="font-medium text-neutral-200">Desktop Processing:</span> When you upload audio on a desktop, it is decoded and processed entirely within your browser using the Whisper Small model running via WebAssembly or WebGPU. The AI model itself is downloaded from Hugging Face once and cached in your browser - after that, the tool works fully offline.
+                                You can export your transcript as plain text, timestamped text, Word (.docx), or PDF. All document generation happens entirely in your browser — no data is sent to any server for export.
                             </p>
                             <p className="mt-2">
-                                <span className="font-medium text-neutral-200">Mobile Processing:</span> To prevent memory crashes on mobile browsers, your audio is chunked and uploaded directly from your device into a temporary Vercel Blob object. Depending on your Blob store mode, the server either hands Groq the Blob URL directly or streams it through a protected route. After transcription completes, the temporary upload is deleted and the text is returned to your device.
+                                The &quot;Continue with AI&quot; buttons copy your transcript to clipboard and open a third-party AI chat (ChatGPT, Claude, Gemini, or Grok) in a new tab. We do not send your transcript to these services — you paste it yourself. Each service&apos;s own privacy policy applies once you interact with them.
                             </p>
                         </Section>
                     </div>
@@ -94,34 +98,30 @@ export default function PrivacyPolicy() {
                     <div className="pt-8 space-y-3">
                         <Section title="Browser Cache & Local Storage">
                             <p>
-                                The Whisper model weights (approximately 150 MB) are cached in your browser&apos;s
-                                native cache after the first download. This is standard browser caching behavior
-                                (no different from a website caching its CSS or images). You can clear this cache
-                                at any time through your browser settings.
+                                The AI model weights (approximately 50–150 MB depending on language) are cached in your browser&apos;s native cache after the first download. You can clear this cache at any time through your browser settings.
                             </p>
                             <p>
-                                We only use a minimal <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">localStorage</code> flag to remember whether the model was loaded before, so the UI can skip a redundant first-load hint. We do not store audio, transcripts, personal data, or tracking identifiers in{" "}
-                                <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">localStorage</code>,{" "}
-                                <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">sessionStorage</code>, or{" "}
-                                <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">IndexedDB</code>.
+                                We use minimal{" "}
+                                <code className="rounded bg-neutral-800 px-1 py-0.5 text-xs font-mono text-neutral-300">localStorage</code>{" "}
+                                flags to remember whether the model was previously loaded (to skip redundant loading UI). We do not store audio, transcripts, personal data, or tracking identifiers in local storage.
                             </p>
                         </Section>
                     </div>
 
                     <div className="pt-8 space-y-3">
                         <Section title="Third-Party Services">
-                            <p>
-                                Depending on your device, this application interacts with the following strict-privacy third parties:
-                            </p>
-                            <ul className="list-disc space-y-2 pl-5 mt-2">
+                            <ul className="list-disc space-y-2 pl-5">
                                 <li>
-                                    <span className="font-medium text-neutral-200">Hugging Face (Desktop):</span> Used only to download the open-source Whisper model files on first use. Their <a href="https://huggingface.co/privacy" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">privacy policy</a> applies to this simple file download.
+                                    <span className="font-medium text-neutral-200">Hugging Face (Desktop):</span> Used only to download open-source AI model files on first use. Their <a href="https://huggingface.co/privacy" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">privacy policy</a> applies.
                                 </li>
                                 <li>
-                                    <span className="font-medium text-neutral-200">Vercel Blob (Mobile Uploads):</span> Used only as temporary storage so mobile audio can be uploaded directly. Temporary uploads are deleted after transcription completes.
+                                    <span className="font-medium text-neutral-200">Vercel Blob (Mobile):</span> Temporary storage for mobile audio uploads. Files are deleted after transcription completes.
                                 </li>
                                 <li>
-                                    <span className="font-medium text-neutral-200">Groq Cloud (Mobile):</span> Used as the processing engine for mobile transcriptions. Groq processes API requests ephemerally; they do not retain your audio data or use it to train their models. You can read the <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">Groq Privacy Policy</a> for more details.
+                                    <span className="font-medium text-neutral-200">Groq Cloud (Mobile):</span> Processes mobile transcriptions ephemerally. Groq does not retain your audio or use it for training. See the <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">Groq Privacy Policy</a>.
+                                </li>
+                                <li>
+                                    <span className="font-medium text-neutral-200">AI Chat Services (Optional):</span> ChatGPT, Claude, Gemini, and Grok are only opened if you click a &quot;Continue with AI&quot; button. We do not send data to them — you paste it yourself.
                                 </li>
                             </ul>
                         </Section>
@@ -130,8 +130,7 @@ export default function PrivacyPolicy() {
                     <div className="pt-8 space-y-3">
                         <Section title="Children's Privacy">
                             <p>
-                                This service does not knowingly collect any data from children or anyone
-                                else, as no data is collected at all.
+                                This service does not knowingly collect any data from children or anyone else, as no personal data is collected at all.
                             </p>
                         </Section>
                     </div>
@@ -139,8 +138,7 @@ export default function PrivacyPolicy() {
                     <div className="pt-8 space-y-3">
                         <Section title="Changes to This Policy">
                             <p>
-                                If this policy ever changes, the updated version will be published at this
-                                URL with a revised &quot;Last updated&quot; date.
+                                If this policy changes, the updated version will be published at this URL with a revised &quot;Last updated&quot; date.
                             </p>
                         </Section>
                     </div>
@@ -168,7 +166,7 @@ export default function PrivacyPolicy() {
                 <div className="mt-10 flex items-center justify-between border-t border-white/10 pt-6">
                     <p className="text-xs text-neutral-500">
                         Developed by{" "}
-                        <span className="font-medium text-neutral-300">Onat Ozmen</span>
+                        <span className="font-medium text-neutral-300">Onat Özmen</span>
                     </p>
                     <Link
                         href="/"

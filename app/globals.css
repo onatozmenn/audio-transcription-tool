@@ -4,10 +4,12 @@
   font-family: "TwemojiFlags";
   src: url("https://cdn.jsdelivr.net/npm/country-flag-emoji-polyfill@0.1/dist/TwemojiCountryFlags.woff2") format("woff2");
   font-display: swap;
+  unicode-range: U+1F1E0-1F1FF;
 }
 
 @theme inline {
   --font-sans: var(--font-inter);
+  --font-emoji: "TwemojiFlags", var(--font-inter), sans-serif;
 }
 
 @keyframes shimmer {
@@ -55,9 +57,47 @@
   animation: transcriptFlash 2.4s ease-in-out forwards;
 }
 
+@keyframes rotateLine {
+  0%       { opacity: 0; transform: translateY(10px); }
+  2%       { opacity: 1; transform: translateY(0); }
+  8%       { opacity: 1; transform: translateY(0); }
+  10%      { opacity: 0; transform: translateY(-10px); }
+  100%     { opacity: 0; transform: translateY(-10px); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+@keyframes waveBar {
+  0%, 100% { transform: scaleY(0.4); }
+  50%      { transform: scaleY(1); }
+}
+
+@keyframes arrowPulse {
+  0%, 100% { opacity: 0.3; transform: translateX(0); }
+  50%      { opacity: 1; transform: translateX(4px); }
+}
+
+@keyframes rainbowBorder {
+  0%   { border-color: #ef4444; box-shadow: 0 0 12px rgba(239,68,68,0.3); }
+  16%  { border-color: #f97316; box-shadow: 0 0 12px rgba(249,115,22,0.3); }
+  33%  { border-color: #eab308; box-shadow: 0 0 12px rgba(234,179,8,0.3); }
+  50%  { border-color: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.3); }
+  66%  { border-color: #3b82f6; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
+  83%  { border-color: #a855f7; box-shadow: 0 0 12px rgba(168,85,247,0.3); }
+  100% { border-color: #ef4444; box-shadow: 0 0 12px rgba(239,68,68,0.3); }
+}
+
+.rainbow-border {
+  animation: rainbowBorder 4s linear infinite;
+}
+
 html,
 body {
   min-height: 100%;
+  background-color: #1a1a1a;
 }
 
 /* Dark scrollbar for all scrollable areas */
