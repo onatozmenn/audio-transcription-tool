@@ -2391,7 +2391,7 @@ export default function Home() {
             >
               {selectedLanguage ? (
                 <>
-                  <span className="text-base leading-none" style={{ fontFamily: "'TwemojiFlags', sans-serif" }}>
+                  <span className="text-base leading-none">
                     {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.flag ?? ""}
                   </span>
                   {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.label}
@@ -2432,7 +2432,7 @@ export default function Home() {
                         : "text-neutral-200 hover:bg-neutral-800",
                     ].join(" ")}
                   >
-                    <span className="text-base leading-none" style={{ fontFamily: "'TwemojiFlags', sans-serif" }}>{option.flag}</span>
+                    <span className="text-base leading-none">{option.flag}</span>
                     {option.label}
                   </button>
                 ))}
