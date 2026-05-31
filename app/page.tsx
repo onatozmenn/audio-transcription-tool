@@ -593,9 +593,6 @@ export default function Home() {
   // True if the model was successfully loaded in a previous session.
   // Stored in localStorage so page refresh doesn't re-show the loading UI.
   const [wasModelEverLoaded, setWasModelEverLoaded] = useState(false);
-  const [mobileAuthenticated, setMobileAuthenticated] = useState(false);
-  const [mobilePassword, setMobilePassword] = useState("");
-  const [mobilePasswordError, setMobilePasswordError] = useState(false);
 
   useEffect(() => {
     const userAgent = navigator.userAgent;
@@ -609,9 +606,6 @@ export default function Home() {
     if (typeof window !== "undefined") {
       if (localStorage.getItem("whisper_model_cached") === "1") {
         setWasModelEverLoaded(true);
-      }
-      if (mobile && localStorage.getItem("mobile_auth") === "1") {
-        setMobileAuthenticated(true);
       }
     }
   }, []);
@@ -2273,63 +2267,6 @@ export default function Home() {
       ),
     [isTurkishPage],
   );
-
-  if (isMobile && !mobileAuthenticated) {
-    return (
-      <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-3 py-6 sm:px-6 sm:py-10">
-        <section className="relative w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-900/70 p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-sm">
-          <h2 className="mb-4 text-center text-xl font-semibold text-neutral-100">
-            {isTurkishPage ? "Şifre Gerekli" : "Password Required"}
-          </h2>
-          <p className="mb-5 text-center text-sm text-neutral-400">
-            {isTurkishPage
-              ? "Mobil erişim için şifrenizi girin."
-              : "Enter the password to access on mobile."}
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (mobilePassword === "100200") {
-                setMobileAuthenticated(true);
-                setMobilePasswordError(false);
-                localStorage.setItem("mobile_auth", "1");
-              } else {
-                setMobilePasswordError(true);
-              }
-            }}
-          >
-            <input
-              type="password"
-              inputMode="numeric"
-              autoFocus
-              value={mobilePassword}
-              onChange={(e) => {
-                setMobilePassword(e.target.value);
-                setMobilePasswordError(false);
-              }}
-              placeholder={isTurkishPage ? "Şifre" : "Password"}
-              className={`mb-3 w-full rounded-lg border bg-neutral-800/60 px-4 py-3 text-center text-lg tracking-widest text-neutral-100 outline-none transition-colors placeholder:text-neutral-500 ${
-                mobilePasswordError
-                  ? "border-red-500/60 focus:border-red-400"
-                  : "border-white/10 focus:border-white/30"
-              }`}
-            />
-            {mobilePasswordError && (
-              <p className="mb-3 text-center text-sm text-red-400">
-                {isTurkishPage ? "Yanlış şifre." : "Incorrect password."}
-              </p>
-            )}
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-white px-4 py-3 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-200 active:bg-neutral-300"
-            >
-              {isTurkishPage ? "Giriş Yap" : "Enter"}
-            </button>
-          </form>
-        </section>
-      </main>
-    );
-  }
 
   return (
     <main className="relative min-h-screen overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 lg:h-screen lg:overflow-hidden lg:px-8">
