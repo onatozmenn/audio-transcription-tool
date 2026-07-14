@@ -11,13 +11,6 @@ import {
 import { assertChunkPathname, getTranscriptionSessionToken } from "@/lib/transcription-session";
 
 export async function POST(request: Request): Promise<NextResponse> {
-  if (!isAllowedOrigin(request)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const botResponse = await denyBotTraffic();
-  if (botResponse) return botResponse;
-
   let body: HandleUploadBody;
   try {
     body = (await request.json()) as HandleUploadBody;
@@ -25,16 +18,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid upload payload." }, { status: 400 });
   }
 
-  const pathname =
-    body.type === "blob.generate-client-token" ? body.payload.pathname : "";
-  const sessionToken = getTranscriptionSessionToken(request);
-  if (!assertChunkPathname(sessionToken, pathname)) {
-    return NextResponse.json(
-      {
-        error: `Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`,
-      },
-      { status: 401 },
-    );
+  let sessionToken: string | null = null;
+  if (body.type === "blob.generate-client-token") {
+    if (!isAllowedOrigin(request)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const botResponse = await denyBotTraffic();
+    if (botResponse) return botResponse;
+
+    sessionToken = getTranscriptionSessionToken(request);
+    if (!assertChunkPathname(sessionToken, body.payload.pathname)) {
+      return NextResponse.json(
+        {
+          error: `Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`,
+        },
+        { status: 401 },
+      );
+    }
+  } else {
+    sessionToken = body.payload.tokenPayload?.trim() || null;
+    if (!assertChunkPathname(sessionToken, body.payload.blob.pathname)) {
+      return NextResponse.json({ error: "Invalid upload completion payload." }, { status: 401 });
+    }
   }
 
   try {
@@ -52,6 +58,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           // Session grants already reserve a unique job/chunk pathname, so
           // Blob must keep that exact pathname for later session validation.
           addRandomSuffix: false,
+          allowOverwrite: true,
+          tokenPayload: sessionToken,
         };
       },
     });

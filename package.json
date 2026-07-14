@@ -6,29 +6,40 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "@vercel/blob": "^2.3.1",
+    "@vercel/blob": "^2.6.1",
     "botid": "^1.5.11",
-    "docx": "^9.6.1",
+    "docx": "^9.7.1",
     "file-saver": "^2.0.5",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.564.0",
-    "next": "16.1.6",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/file-saver": "^2.0.7",
     "@types/node": "^20",
-    "@types/react": "^19",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "overrides": {
+      "onnxruntime-node>tar": "7.5.16",
+      "onnxruntime-web>protobufjs": "7.6.3",
+      "@tailwindcss/postcss>postcss": "8.5.10",
+      "jspdf>dompurify": "3.4.11",
+      "next>postcss": "8.5.10"
+    }
   }
 }

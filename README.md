@@ -97,20 +97,28 @@ GROQ_API_KEY=your_groq_api_key
 BLOB_READ_WRITE_TOKEN=your_vercel_blob_token
 TRANSCRIPTION_SESSION_SECRET=your_random_secret
 NEXT_PUBLIC_BLOB_UPLOAD_ACCESS=public
+UPSTASH_REDIS_REST_URL=your_upstash_redis_rest_url
+UPSTASH_REDIS_REST_TOKEN=your_upstash_redis_rest_token
+RATE_LIMIT_HASH_SECRET=your_independent_random_secret
+CRON_SECRET=your_vercel_cron_secret
 ```
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `GROQ_API_KEY` | Mobile only | Cloud transcription via Groq |
 | `BLOB_READ_WRITE_TOKEN` | Mobile only | Vercel Blob uploads |
-| `TRANSCRIPTION_SESSION_SECRET` | Recommended | HMAC signing for session tokens |
+| `TRANSCRIPTION_SESSION_SECRET` | Mobile only | HMAC signing for session tokens; use a random secret independent from the Groq key |
 | `NEXT_PUBLIC_BLOB_UPLOAD_ACCESS` | Mobile only | `public` (recommended) or `private` |
+| `UPSTASH_REDIS_REST_URL` | Production mobile | Shared serverless rate-limit store |
+| `UPSTASH_REDIS_REST_TOKEN` | Production mobile | Authentication for the rate-limit store |
+| `RATE_LIMIT_HASH_SECRET` | Production mobile | Independent HMAC key used before request identifiers enter the rate-limit store |
+| `CRON_SECRET` | Production mobile | Authorizes scheduled cleanup of abandoned temporary uploads |
 
 ## Deploy to Vercel
 
 1. Push to GitHub → Import in Vercel
 2. Create a Vercel Blob store
-3. Add environment variables
+3. Add environment variables, including Upstash Redis and `CRON_SECRET`
 4. Enable Secure Backend Access (OIDC) for BotID
 5. Deploy — `vercel.json` WAF rules are included
 
@@ -120,8 +128,9 @@ NEXT_PUBLIC_BLOB_UPLOAD_ACCESS=public
 - BotID (client + server) bot detection
 - HMAC-SHA256 signed session tokens with TTL
 - Vercel edge challenge for requests without session headers
-- IP-based rate limiting
+- HMAC-pseudonymized, distributed rate limiting via Upstash Redis
 - File type, size, and pathname validation
+- Immediate Blob cleanup after successful processing plus scheduled stale-upload cleanup
 
 ## Privacy
 

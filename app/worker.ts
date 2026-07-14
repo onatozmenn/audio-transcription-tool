@@ -421,26 +421,17 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
       return padded;
     }
 
-    // Build the list of overlapping windows
-    type Window = { data: Float32Array; offsetS: number };
-    const windows: Window[] = [];
-    let offset = 0;
-    while (offset < audio.length) {
-      const end = Math.min(offset + WINDOW_SAMPLES, audio.length);
-      const slice = audio.slice(offset, end);
-      // Pad short tail windows with silence instead of skipping them.
-      const windowData = padToMinLength(slice, MIN_WINDOW_SAMPLES);
-      windows.push({ data: windowData, offsetS: offset / SAMPLE_RATE });
-      if (end >= audio.length) break;
-      offset += JUMP_SAMPLES;
+    if (audio.length === 0) {
+      throw new Error("The decoded audio is empty.");
     }
 
-    // Safety net: if audio was empty, push the whole thing.
-    if (windows.length === 0 && audio.length > 0) {
-      windows.push({ data: padToMinLength(audio.slice(0), MIN_WINDOW_SAMPLES), offsetS: 0 });
-    }
-
-    const totalWindows = windows.length;
+    // Compute the window count without copying every overlapping slice up
+    // front. Long recordings otherwise consume roughly another full audio
+    // buffer before inference even begins.
+    const totalWindows = Math.max(
+      1,
+      Math.ceil((audio.length - WINDOW_SAMPLES) / JUMP_SAMPLES) + 1,
+    );
 
     postToMain({
       type: "progress",
@@ -456,10 +447,19 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
     // ── Accumulators ─────────────────────────────────────────────────────────
     const accumulatedTexts: string[] = [];
     const allSegments: TranscriptSegment[] = [];
+    let successfulWindows = 0;
 
     // ── Process each window sequentially ─────────────────────────────────────
     for (let i = 0; i < totalWindows; i++) {
-      const win = windows[i];
+      if (abortRequestId === requestId) return;
+
+      const windowOffset = i * JUMP_SAMPLES;
+      const windowEnd = Math.min(windowOffset + WINDOW_SAMPLES, audio.length);
+      const windowData = padToMinLength(
+        audio.slice(windowOffset, windowEnd),
+        MIN_WINDOW_SAMPLES,
+      );
+      const windowOffsetSeconds = windowOffset / SAMPLE_RATE;
 
       try {
         // Moonshine: no timestamps, no language, no chunking params.
@@ -475,7 +475,8 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
             language: languageHint && languageHint !== "auto" ? languageHint : undefined,
           } as Record<string, unknown>);
 
-        const result = await transcriber(win.data, pipelineOptions);
+        const result = await transcriber(windowData, pipelineOptions);
+        successfulWindows += 1;
 
         const normalized = Array.isArray(result) ? result[0] : result;
 
@@ -487,8 +488,8 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
           if (segText) {
             allSegments.push({
               text: segText,
-              start: win.offsetS,
-              end: win.offsetS + win.data.length / SAMPLE_RATE,
+              start: windowOffsetSeconds,
+              end: windowOffsetSeconds + windowData.length / SAMPLE_RATE,
             });
           }
         } else {
@@ -497,8 +498,8 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
             const text = typeof chunk.text === "string" ? chunk.text.trim() : "";
             if (!text) continue;
             const ts = Array.isArray(chunk.timestamp) ? chunk.timestamp : [0, 0];
-            const start = toSafeTimestamp(ts[0], 0) + win.offsetS;
-            const end = toSafeTimestamp(ts[1], toSafeTimestamp(ts[0], 0)) + win.offsetS;
+            const start = toSafeTimestamp(ts[0], 0) + windowOffsetSeconds;
+            const end = toSafeTimestamp(ts[1], toSafeTimestamp(ts[0], 0)) + windowOffsetSeconds;
             allSegments.push({ text, start, end });
           }
         }
@@ -534,6 +535,10 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
 
       // Honour a cancel request that arrived between windows.
       if (abortRequestId === requestId) return;
+    }
+
+    if (successfulWindows === 0) {
+      throw new Error("Transcription failed for every audio segment.");
     }
 
     // ── Merge + deduplicate segments ─────────────────────────────────────────

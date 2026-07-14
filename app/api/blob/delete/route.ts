@@ -45,9 +45,16 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     await del(blobUrl);
-  } catch {
-    // Cleanup is best-effort so temporary uploads do not block the user flow.
+  } catch (error) {
+    console.error("Blob cleanup failed:", error);
+    return NextResponse.json(
+      { error: "Temporary upload could not be deleted.", ok: false },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(
+    { ok: true },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

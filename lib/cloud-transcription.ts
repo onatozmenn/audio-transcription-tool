@@ -25,6 +25,17 @@ export const ALLOWED_AUDIO_CONTENT_TYPES = [
   "video/mp4",
   "application/octet-stream",
 ] as const;
+export const ALLOWED_AUDIO_FILE_EXTENSIONS = [
+  "mp3",
+  "wav",
+  "m4a",
+  "mp4",
+  "ogg",
+  "flac",
+  "aac",
+  "webm",
+  "opus",
+] as const;
 
 const ALLOWED_AUDIO_TYPE_SET = new Set<string>(ALLOWED_AUDIO_CONTENT_TYPES);
 const BLOB_HOST_SUFFIX = ".blob.vercel-storage.com";
@@ -35,13 +46,12 @@ export function toHostname(urlValue: string | null): string | null {
   try {
     return new URL(urlValue).hostname;
   } catch {
-    return null;
+    const hostname = urlValue.trim().split(":")[0]?.toLowerCase() ?? "";
+    return /^[a-z0-9.-]+$/i.test(hostname) ? hostname : null;
   }
 }
 
 export function isAllowedOrigin(req: Request): boolean {
-  const headerHost = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-  const requestHost = headerHost?.split(":")[0]?.toLowerCase() ?? null;
   const knownHosts = new Set<string>([
     "localhost",
     "127.0.0.1",
@@ -50,9 +60,12 @@ export function isAllowedOrigin(req: Request): boolean {
     "www.audio-transcription.app",
   ]);
 
-  if (requestHost) knownHosts.add(requestHost);
-
-  const envUrls = [process.env.APP_URL, process.env.NEXT_PUBLIC_SITE_URL];
+  const envUrls = [
+    process.env.APP_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.VERCEL_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  ];
   for (const envUrl of envUrls) {
     const host = toHostname(envUrl ?? null);
     if (host) knownHosts.add(host.toLowerCase());
@@ -74,12 +87,21 @@ export function isValidAudioMimeType(type: string): boolean {
   return type.startsWith("audio/") || ALLOWED_AUDIO_TYPE_SET.has(type.toLowerCase());
 }
 
+export function isValidAudioFileName(fileName: string): boolean {
+  const extension = fileName.trim().toLowerCase().split(".").pop();
+  return extension !== undefined &&
+    ALLOWED_AUDIO_FILE_EXTENSIONS.includes(
+      extension as (typeof ALLOWED_AUDIO_FILE_EXTENSIONS)[number],
+    );
+}
+
 export function sanitizeUploadFileName(fileName: string): string {
   const normalized = fileName.trim().toLowerCase();
   const sanitized = normalized
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^\.+/, "")
+    .replace(/^[.-]+/, "")
+    .replace(/-+\./g, ".")
     .slice(0, 96);
 
   return sanitized || "audio.wav";

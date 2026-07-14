@@ -37,5 +37,11 @@
         "action": "challenge"
       }
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/cleanup",
+      "schedule": "0 3 * * *"
+    }
   ]
 }

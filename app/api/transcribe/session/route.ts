@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { denyBotTraffic } from "@/lib/bot-protection";
-import { isAllowedOrigin } from "@/lib/cloud-transcription";
+import { isAllowedOrigin, isValidAudioFileName } from "@/lib/cloud-transcription";
 import {
   MAX_TRANSCRIPTION_SESSION_CHUNKS,
   createTranscriptionSession,
 } from "@/lib/transcription-session";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const SESSION_WINDOW_MS = 30 * 60 * 1000;
 const MAX_SESSION_STARTS_PER_WINDOW = 10;
-const SESSION_START_STORE = new Map<string, { count: number; windowStart: number }>();
 
 type CreateSessionRequest = {
   fileName?: string;
@@ -24,26 +24,6 @@ function getRequestIp(req: Request): string {
   return req.headers.get("x-real-ip") ?? "unknown";
 }
 
-function cleanupSessionStartStore(now: number): void {
-  for (const [ip, state] of SESSION_START_STORE) {
-    if (now - state.windowStart > SESSION_WINDOW_MS * 2) {
-      SESSION_START_STORE.delete(ip);
-    }
-  }
-}
-
-function isSessionStartRateLimited(ip: string, now: number): boolean {
-  const state = SESSION_START_STORE.get(ip);
-  if (!state || now - state.windowStart > SESSION_WINDOW_MS) {
-    SESSION_START_STORE.set(ip, { count: 1, windowStart: now });
-    return false;
-  }
-
-  state.count += 1;
-  SESSION_START_STORE.set(ip, state);
-  return state.count > MAX_SESSION_STARTS_PER_WINDOW;
-}
-
 export async function POST(request: Request): Promise<NextResponse> {
   if (!isAllowedOrigin(request)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -52,14 +32,23 @@ export async function POST(request: Request): Promise<NextResponse> {
   const botResponse = await denyBotTraffic();
   if (botResponse) return botResponse;
 
-  const now = Date.now();
-  if (SESSION_START_STORE.size > 500) cleanupSessionStartStore(now);
-
   const ip = getRequestIp(request);
-  if (isSessionStartRateLimited(ip, now)) {
+  const rateLimit = await checkRateLimit({
+    identifier: ip,
+    limit: MAX_SESSION_STARTS_PER_WINDOW,
+    namespace: "session",
+    windowMs: SESSION_WINDOW_MS,
+  });
+  if (!rateLimit.available) {
+    return NextResponse.json(
+      { error: "Rate limit service is temporarily unavailable." },
+      { status: 503, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } },
+    );
+  }
+  if (!rateLimit.allowed) {
     return NextResponse.json(
       { error: "Too many transcription sessions started. Please wait a bit and try again." },
-      { status: 429, headers: { "Retry-After": String(Math.ceil(SESSION_WINDOW_MS / 1000)) } },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } },
     );
   }
 
@@ -81,6 +70,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   if (!fileName.trim()) {
     return NextResponse.json({ error: "Invalid file name." }, { status: 400 });
+  }
+  if (!isValidAudioFileName(fileName)) {
+    return NextResponse.json({ error: "Unsupported audio file extension." }, { status: 415 });
   }
 
   return NextResponse.json(createTranscriptionSession(totalChunks, fileName), {

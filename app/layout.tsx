@@ -1,10 +1,18 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Manrope, Source_Sans_3 } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
+const bodyFont = Source_Sans_3({
+  variable: "--font-source-sans",
+  subsets: ["latin", "latin-ext"],
+  display: "swap",
+});
+
+const displayFont = Manrope({
+  variable: "--font-manrope",
+  subsets: ["latin", "latin-ext"],
+  display: "swap",
 });
 
 const CANONICAL_URL = "https://audio-transcription.app";
@@ -110,6 +118,11 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 const webApplicationJsonLd = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
@@ -166,15 +179,17 @@ const webSiteJsonLd = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const requestHeaders = await headers();
+  const language = requestHeaders.get("x-app-locale") === "tr" ? "tr" : "en";
+
   return (
-    <html lang="en" className="dark">
+    <html lang={language} className="dark">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -182,7 +197,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.variable} bg-neutral-950 text-neutral-100 antialiased`}>
+      <body className={`${bodyFont.variable} ${displayFont.variable} text-neutral-100 antialiased`}>
         {children}
       </body>
     </html>

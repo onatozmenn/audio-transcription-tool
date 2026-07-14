@@ -4,7 +4,7 @@ import { ShieldCheck } from "lucide-react";
 
 export const metadata: Metadata = {
     title: "Privacy Policy - Audio Transcription",
-    description: "Privacy policy for the client-side audio transcription tool.",
+    description: "How local and cloud audio transcription data is processed, protected, and deleted.",
 };
 
 const Section = ({
@@ -15,17 +15,17 @@ const Section = ({
     children: React.ReactNode;
 }) => (
     <div className="space-y-3">
-        <h2 className="text-base font-semibold text-neutral-100">{title}</h2>
+        <h2 className="font-display text-base font-semibold text-neutral-100">{title}</h2>
         <div className="space-y-2 text-sm leading-7 text-neutral-400">{children}</div>
     </div>
 );
 
 export default function PrivacyPolicy() {
-    const updated = "April 27, 2026";
+    const updated = "July 14, 2026";
 
     return (
         <main className="flex min-h-screen items-start justify-center px-4 py-12 sm:px-6">
-            <article className="w-full max-w-2xl rounded-2xl border border-white/10 bg-neutral-900/70 p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur-sm sm:p-10">
+            <article className="w-full max-w-2xl rounded-lg border border-white/[0.09] bg-[#171a18]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.35)] sm:p-10">
 
                 {/* Back link */}
                 <Link
@@ -44,7 +44,7 @@ export default function PrivacyPolicy() {
                         <ShieldCheck className="size-3.5" />
                         Privacy-first by design
                     </p>
-                    <h1 className="text-2xl font-semibold tracking-tight text-white">
+                    <h1 className="font-display text-2xl font-semibold text-white">
                         Privacy Policy
                     </h1>
                     <p className="text-xs text-neutral-500">
@@ -58,16 +58,15 @@ export default function PrivacyPolicy() {
                     <div className="pt-8 space-y-3">
                         <Section title="Overview">
                             <p>
-                                This tool is built with privacy as a core principle.{" "}
-                                <span className="font-medium text-neutral-200">We do not collect any personal data.</span>{" "}
-                                How your audio is handled depends on the device you are using:
+                                This tool does not require an account and does not use advertising or analytics trackers.
+                                Limited data is processed only to provide and protect the transcription service. How your audio is handled depends on the device you use:
                             </p>
                             <ul className="list-disc space-y-2 pl-5">
                                 <li>
                                     <span className="font-medium text-neutral-200">On Desktop:</span> All transcription happens entirely inside your browser using Whisper Small or Moonshine AI models. No audio, text, or personal information is ever sent to a server.
                                 </li>
                                 <li>
-                                    <span className="font-medium text-neutral-200">On Mobile:</span> Due to hardware limitations, your audio is uploaded to temporary storage, transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">Groq Cloud</a> (Whisper Large V3), and then deleted. Groq does not use your data to train their models.
+                                    <span className="font-medium text-neutral-200">On Mobile:</span> Due to hardware limitations, your audio is uploaded to temporary Vercel Blob storage, transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">Groq Cloud</a> (Whisper Large V3), and deleted after processing.
                                 </li>
                             </ul>
                         </Section>
@@ -79,7 +78,18 @@ export default function PrivacyPolicy() {
                                 <span className="font-medium text-neutral-200">Desktop:</span> Audio is decoded and processed entirely within your browser. English audio uses the Moonshine Base model (fast, lightweight); other languages use the Whisper Small model. Both run via WebGPU (with WASM fallback). The AI model is downloaded once from Hugging Face and cached in your browser — after that, transcription works fully offline.
                             </p>
                             <p className="mt-2">
-                                <span className="font-medium text-neutral-200">Mobile:</span> Audio is chunked and uploaded directly from your device into a temporary Vercel Blob object. The server sends the audio to Groq for transcription. After processing completes, the temporary upload is deleted and only the text is returned to your device.
+                                <span className="font-medium text-neutral-200">Mobile:</span> Audio is chunked and uploaded directly from your device into a temporary Vercel Blob object. The server gives Groq time-limited access for transcription. Successful jobs are deleted immediately. Failed or abandoned uploads are removed by a scheduled cleanup after the four-hour session lifetime plus a one-hour grace period.
+                            </p>
+                        </Section>
+                    </div>
+
+                    <div className="pt-8 space-y-3">
+                        <Section title="Abuse Prevention & Request Metadata">
+                            <p>
+                                Mobile API requests are checked by Vercel BotID and rate limited. The application converts the request IP address into a keyed HMAC value before placing it in the shared rate-limit store; the raw IP address is not stored by the application. Rate-limit entries expire after at most 30 minutes.
+                            </p>
+                            <p>
+                                Hosting and API providers may process standard network logs under their own privacy and retention policies. A separate random secret is used for transcription grants and no rate-limit identifier is included in transcript output.
                             </p>
                         </Section>
                     </div>
@@ -115,10 +125,13 @@ export default function PrivacyPolicy() {
                                     <span className="font-medium text-neutral-200">Hugging Face (Desktop):</span> Used only to download open-source AI model files on first use. Their <a href="https://huggingface.co/privacy" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">privacy policy</a> applies.
                                 </li>
                                 <li>
-                                    <span className="font-medium text-neutral-200">Vercel Blob (Mobile):</span> Temporary storage for mobile audio uploads. Files are deleted after transcription completes.
+                                    <span className="font-medium text-neutral-200">Vercel Blob and Vercel BotID (Mobile):</span> Temporary storage and abuse prevention for mobile requests. Uploads are deleted after processing or by scheduled stale-file cleanup.
                                 </li>
                                 <li>
-                                    <span className="font-medium text-neutral-200">Groq Cloud (Mobile):</span> Processes mobile transcriptions ephemerally. Groq does not retain your audio or use it for training. See the <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">Groq Privacy Policy</a>.
+                                    <span className="font-medium text-neutral-200">Upstash Redis (Mobile):</span> Stores only keyed, pseudonymous rate-limit counters with a maximum 30-minute lifetime. Audio and transcripts are never stored there.
+                                </li>
+                                <li>
+                                    <span className="font-medium text-neutral-200">Groq Cloud (Mobile):</span> Processes mobile audio using Whisper Large V3. Groq&apos;s terms and retention policy apply while it processes the request. See the <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline underline-offset-2 hover:text-cyan-300">Groq Privacy Policy</a>.
                                 </li>
                                 <li>
                                     <span className="font-medium text-neutral-200">AI Chat Services (Optional):</span> ChatGPT, Claude, Gemini, and Grok are only opened if you click a &quot;Continue with AI&quot; button. We do not send data to them — you paste it yourself.
@@ -130,7 +143,7 @@ export default function PrivacyPolicy() {
                     <div className="pt-8 space-y-3">
                         <Section title="Children's Privacy">
                             <p>
-                                This service does not knowingly collect any data from children or anyone else, as no personal data is collected at all.
+                                This service is not directed at children and does not knowingly create profiles about children. The same limited processing described above applies to every request.
                             </p>
                         </Section>
                     </div>

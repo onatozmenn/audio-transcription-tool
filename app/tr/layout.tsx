@@ -4,15 +4,12 @@ const BASE_URL = "https://audio-transcription.app";
 const TR_URL = `${BASE_URL}/tr`;
 const SOCIAL_IMAGE_PATH = "/opengraph-image";
 
-const TR_TITLE = "Ucretsiz Ses Transkripsiyon Araci - Konusmayi Metne Cevir (Uyeliksiz)";
+const TR_TITLE = "Ücretsiz Ses Transkripsiyon Aracı - Konuşmayı Metne Çevir";
 const TR_DESCRIPTION =
-  "Whisper AI ile sesi ucretsiz metne cevirin. MP3, WAV, M4A ve daha fazlasini destekler. Masaustunde yerel calisir; mobilde guvenli bulut transkripsiyonu kullanir.";
+  "Whisper ve Moonshine ile sesi ücretsiz metne çevirin. MP3, WAV, M4A ve daha fazlasını destekler. Masaüstünde yerel, mobilde güvenli bulut transkripsiyonu kullanır.";
 
 export const metadata: Metadata = {
-  title: {
-    default: TR_TITLE,
-    template: "%s | Ucretsiz Ses Transkripsiyon Araci",
-  },
+  title: { absolute: TR_TITLE },
   description: TR_DESCRIPTION,
   keywords: [
     "ucretsiz ses transkripsiyon",
@@ -46,7 +43,7 @@ export const metadata: Metadata = {
         url: SOCIAL_IMAGE_PATH,
         width: 1200,
         height: 630,
-        alt: "Ucretsiz ses transkripsiyon araci onizlemesi",
+        alt: "Ücretsiz ses transkripsiyon aracı önizlemesi",
       },
     ],
   },

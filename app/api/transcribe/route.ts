@@ -1,4 +1,4 @@
-import { head } from "@vercel/blob";
+import { del, head } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { denyBotTraffic } from "@/lib/bot-protection";
 import {
@@ -6,11 +6,17 @@ import {
   isAllowedBlobPathname,
   isAllowedOrigin,
   isManagedBlobUrl,
+  isValidAudioFileName,
   isValidAudioMimeType,
   TRANSCRIPTION_SESSION_HEADER,
   USE_DIRECT_BLOB_URL_HANDOFF,
 } from "@/lib/cloud-transcription";
-import { assertChunkPathname, getTranscriptionSessionToken } from "@/lib/transcription-session";
+import {
+  assertChunkPathname,
+  getTranscriptionSessionToken,
+  verifyTranscriptionSessionToken,
+} from "@/lib/transcription-session";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 // Long-audio chunks can take ~20-40s on Groq (fetch blob → transcribe → return).
 // Default Vercel function timeout (10s hobby / 15s pro) is not enough — bump
@@ -36,7 +42,6 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 // Mobile long-audio transcription is chunked into many API calls.
 // Keep abuse protection, but allow sustained chunk uploads.
 const MAX_REQUESTS_PER_WINDOW = 90;
-const RATE_LIMIT_STORE = new Map<string, { windowStart: number; count: number }>();
 
 function jsonError(
   message: string,
@@ -66,40 +71,10 @@ function getRequestIp(req: Request): string {
   return "unknown";
 }
 
-function cleanupRateLimitStore(now: number): void {
-  for (const [ip, state] of RATE_LIMIT_STORE) {
-    if (now - state.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
-      RATE_LIMIT_STORE.delete(ip);
-    }
-  }
-}
-
-function isRateLimited(ip: string, now: number): boolean {
-  const state = RATE_LIMIT_STORE.get(ip);
-  if (!state || now - state.windowStart > RATE_LIMIT_WINDOW_MS) {
-    RATE_LIMIT_STORE.set(ip, { windowStart: now, count: 1 });
-    return false;
-  }
-
-  state.count += 1;
-  RATE_LIMIT_STORE.set(ip, state);
-  return state.count > MAX_REQUESTS_PER_WINDOW;
-}
-
-function getRetryAfterSeconds(ip: string, now: number): number {
-  const state = RATE_LIMIT_STORE.get(ip);
-  if (!state) {
-    return Math.ceil(RATE_LIMIT_WINDOW_MS / 1000);
-  }
-
-  const resetAt = state.windowStart + RATE_LIMIT_WINDOW_MS;
-  const msUntilReset = Math.max(resetAt - now, 1_000);
-  return Math.ceil(msUntilReset / 1_000);
-}
-
 type GroqSegment = { text: string; start: number; end: number };
 type GroqResponse = { text?: string; segments?: GroqSegment[] };
 type BlobTranscriptionRequest = { blobUrl?: string; language?: string };
+type GroqRequest = { cleanupBlobUrl: string | null; formData: FormData };
 
 function buildInternalBlobStreamUrl(req: Request, pathname: string, sessionToken: string): string {
   const baseUrl = new URL(req.url);
@@ -109,7 +84,7 @@ function buildInternalBlobStreamUrl(req: Request, pathname: string, sessionToken
   return streamUrl.toString();
 }
 
-async function buildGroqFormData(req: Request): Promise<FormData | NextResponse> {
+async function buildGroqFormData(req: Request): Promise<GroqRequest | NextResponse> {
   const contentType = req.headers.get("content-type") ?? "";
 
   if (contentType.includes("application/json")) {
@@ -169,15 +144,23 @@ async function buildGroqFormData(req: Request): Promise<FormData | NextResponse>
       groqFormData.append("language", LANGUAGE_CODES[language]);
     }
 
-    return groqFormData;
+    return { cleanupBlobUrl: blobMeta.url, formData: groqFormData };
   }
 
   const formData = await req.formData();
   const fileEntry = formData.get("file");
   const languageEntry = formData.get("language");
 
+  const sessionToken = getTranscriptionSessionToken(req);
+  if (!verifyTranscriptionSessionToken(sessionToken)) {
+    return jsonError(`Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`, 401);
+  }
+
   if (!(fileEntry instanceof File)) {
     return jsonError("No audio file provided.", 400);
+  }
+  if (!isValidAudioFileName(fileEntry.name)) {
+    return jsonError("Unsupported audio file extension.", 415);
   }
   if (fileEntry.size <= 0) {
     return jsonError("Uploaded audio file is empty.", 400);
@@ -203,7 +186,7 @@ async function buildGroqFormData(req: Request): Promise<FormData | NextResponse>
     groqFormData.append("language", LANGUAGE_CODES[language]);
   }
 
-  return groqFormData;
+  return { cleanupBlobUrl: null, formData: groqFormData };
 }
 
 export async function POST(req: Request) {
@@ -215,17 +198,24 @@ export async function POST(req: Request) {
     const botResponse = await denyBotTraffic();
     if (botResponse) return botResponse;
 
-    const now = Date.now();
-    if (RATE_LIMIT_STORE.size > 500) cleanupRateLimitStore(now);
-
     const ip = getRequestIp(req);
-    if (isRateLimited(ip, now)) {
-      const retryAfterSeconds = getRetryAfterSeconds(ip, now);
+    const rateLimit = await checkRateLimit({
+      identifier: ip,
+      limit: MAX_REQUESTS_PER_WINDOW,
+      namespace: "transcribe",
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    });
+    if (!rateLimit.available) {
+      return jsonError("Rate limit service is temporarily unavailable.", 503, {
+        "Retry-After": String(rateLimit.retryAfterSeconds),
+      });
+    }
+    if (!rateLimit.allowed) {
       return jsonError(
         "Too many requests. Please try again shortly.",
         429,
         {
-          "Retry-After": String(retryAfterSeconds),
+          "Retry-After": String(rateLimit.retryAfterSeconds),
           "X-RateLimit-Limit": String(MAX_REQUESTS_PER_WINDOW),
           "X-RateLimit-Window": String(Math.ceil(RATE_LIMIT_WINDOW_MS / 1_000)),
           "X-RateLimit-Remaining": "0",
@@ -237,9 +227,9 @@ export async function POST(req: Request) {
       return jsonError("GROQ_API_KEY is not configured on the server.", 500);
     }
 
-    const groqFormData = await buildGroqFormData(req);
-    if (groqFormData instanceof NextResponse) {
-      return groqFormData;
+    const groqRequest = await buildGroqFormData(req);
+    if (groqRequest instanceof NextResponse) {
+      return groqRequest;
     }
 
     const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
@@ -247,7 +237,7 @@ export async function POST(req: Request) {
       headers: {
         Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
       },
-      body: groqFormData,
+      body: groqRequest.formData,
       signal: AbortSignal.timeout(55_000),
       cache: "no-store",
     });
@@ -264,7 +254,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const data = (await response.json()) as GroqResponse;
+    let data: GroqResponse;
+    try {
+      data = (await response.json()) as GroqResponse;
+    } finally {
+      if (groqRequest.cleanupBlobUrl) {
+        try {
+          await del(groqRequest.cleanupBlobUrl);
+        } catch (cleanupError) {
+          console.error("Server-side Blob cleanup failed:", cleanupError);
+        }
+      }
+    }
+
     return NextResponse.json(
       {
         text: data.text ?? "",

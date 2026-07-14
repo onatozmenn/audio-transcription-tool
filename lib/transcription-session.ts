@@ -2,10 +2,11 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   BLOB_UPLOAD_PATH_PREFIX,
   TRANSCRIPTION_SESSION_HEADER,
+  isValidAudioFileName,
 } from "@/lib/cloud-transcription";
 
 export const MAX_TRANSCRIPTION_SESSION_CHUNKS = 96;
-const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+export const TRANSCRIPTION_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 
 type TranscriptionChunkClaims = {
   exp: number;
@@ -28,9 +29,9 @@ export type TranscriptionSessionPayload = {
 };
 
 function getSessionSecret(): string {
-  const secret = process.env.TRANSCRIPTION_SESSION_SECRET ?? process.env.GROQ_API_KEY;
+  const secret = process.env.TRANSCRIPTION_SESSION_SECRET;
   if (!secret) {
-    throw new Error("TRANSCRIPTION_SESSION_SECRET or GROQ_API_KEY must be configured.");
+    throw new Error("TRANSCRIPTION_SESSION_SECRET must be configured.");
   }
 
   return secret;
@@ -87,7 +88,17 @@ function normalizePathname(pathname: string): string {
 }
 
 export function createTranscriptionSession(totalChunks: number, fileName: string): TranscriptionSessionPayload {
-  const expiresAt = Date.now() + SESSION_TTL_MS;
+  if (!Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > MAX_TRANSCRIPTION_SESSION_CHUNKS) {
+    throw new RangeError("Invalid transcription session chunk count.");
+  }
+  if (!fileName.trim()) {
+    throw new Error("A transcription session file name is required.");
+  }
+  if (!isValidAudioFileName(fileName)) {
+    throw new Error("Unsupported transcription session file extension.");
+  }
+
+  const expiresAt = Date.now() + TRANSCRIPTION_SESSION_TTL_MS;
   const jobId = randomUUID();
   const grants: TranscriptionChunkGrant[] = [];
 
