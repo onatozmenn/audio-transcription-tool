@@ -6,9 +6,9 @@ import {
   Clock3,
   Copy,
   FileText,
-  Linkedin,
   Square,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -2290,35 +2290,50 @@ export default function Home() {
     <main className="relative min-h-screen select-none overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:h-screen lg:overflow-hidden lg:px-8">
       <div className="mx-auto flex h-full w-full max-w-[1440px] flex-col">
 
-        <header className="mb-5 border-b border-white/[0.08] pb-4">
+        <header className="mb-6 flex items-start justify-between gap-6 pb-2">
           <div className="flex items-center">
-            <div className="flex min-w-0 items-start gap-3 sm:items-center sm:gap-4">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-[#1b1f1c] shadow-[0_8px_28px_rgba(0,0,0,0.22)] sm:size-11">
-                <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="size-6 text-emerald-300 sm:size-7">
-                  <rect x="4" y="12" width="2" height="8" rx="1" fill="currentColor" />
-                  <rect x="8" y="6" width="2" height="20" rx="1" fill="currentColor" />
-                  <rect x="12" y="10" width="2" height="12" rx="1" fill="currentColor" />
-                  <rect x="18" y="14" width="10" height="2" rx="1" fill="currentColor" />
-                  <rect x="18" y="18" width="7" height="2" rx="1" fill="currentColor" />
+            <div className="flex min-w-0 items-start gap-3.5 sm:items-center sm:gap-5">
+              <div className="flex h-11 w-16 shrink-0 items-center text-emerald-200/90 sm:h-12 sm:w-[4.5rem]">
+                <svg viewBox="0 0 72 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="h-10 w-full">
+                  <rect x="1" y="15" width="3" height="10" rx="1.5" fill="currentColor" />
+                  <rect x="7" y="9" width="3" height="22" rx="1.5" fill="currentColor" />
+                  <rect x="13" y="4" width="3" height="32" rx="1.5" fill="currentColor" />
+                  <rect x="19" y="11" width="3" height="18" rx="1.5" fill="currentColor" />
+                  <rect x="25" y="7" width="3" height="26" rx="1.5" fill="currentColor" />
+                  <path d="M34 11H69M34 20H62M34 29H54" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" opacity="0.58" />
                 </svg>
               </div>
               <div className="min-w-0">
-                <h1 className="font-display text-xl font-semibold text-white sm:text-[1.7rem]">
+                <h1 className="font-display text-xl font-semibold text-white sm:text-[1.75rem]">
                   {copy.appTitle}
                 </h1>
                 <p className="mt-0.5 max-w-2xl text-sm leading-5 text-neutral-400">
                   {copy.appSubtitle}
                 </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/[0.07] px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-                    <Check className="size-3" />
-                    {copy.freeBadge}
-                  </span>
-                  <span className="text-[11px] font-medium text-neutral-500">{copy.noSignup}</span>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="font-semibold text-emerald-100/75">{copy.freeBadge}</span>
+                  <span aria-hidden="true" className="text-neutral-700">/</span>
+                  <span className="font-medium text-neutral-400">{copy.noSignup}</span>
                 </div>
               </div>
             </div>
           </div>
+          <nav
+            aria-label={isTurkishPage ? "Arayüz dili" : "Interface language"}
+            className="flex shrink-0 items-center gap-2.5 pt-1 text-xs"
+          >
+            {isTurkishPage ? (
+              <Link href="/" hrefLang="en" className="font-medium text-neutral-400 transition-colors hover:text-neutral-100">EN</Link>
+            ) : (
+              <span aria-current="page" className="font-semibold text-neutral-100">EN</span>
+            )}
+            <span aria-hidden="true" className="text-neutral-700">/</span>
+            {isTurkishPage ? (
+              <span aria-current="page" className="font-semibold text-neutral-100">TR</span>
+            ) : (
+              <Link href="/tr" hrefLang="tr" className="font-medium text-neutral-400 transition-colors hover:text-neutral-100">TR</Link>
+            )}
+          </nav>
         </header>
 
         {/* ═══ Two-column layout: left = controls, right = transcript ═══ */}
@@ -2329,7 +2344,7 @@ export default function Home() {
 
         <div>
           <label htmlFor="audio-language" className="mb-2 flex items-center gap-2 text-xs font-semibold text-neutral-300">
-            <span className="flex size-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.035] font-display text-[10px] text-neutral-500">01</span>
+            <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/50">01</span>
             <span>{copy.stepLanguage}</span>
           </label>
           <div
@@ -2375,7 +2390,7 @@ export default function Home() {
                 type="button"
                 onClick={cancelTranscription}
                 disabled={isCancelling}
-                className="text-xs text-neutral-500 transition-colors hover:text-red-300"
+                className="text-xs text-neutral-400 transition-colors hover:text-red-300"
               >
                 {isCancelling ? copy.cancelling : copy.cancel}
               </button>
@@ -2387,13 +2402,13 @@ export default function Home() {
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={isCompiling ? undefined : Math.round(progress)}
-                className="mt-2 h-1 overflow-hidden rounded-full bg-neutral-800"
+                className="mt-2 h-1 overflow-hidden rounded-[2px] bg-neutral-800"
               >
                 {isCompiling ? (
-                  <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-cyan-600/30 via-cyan-400/80 to-cyan-600/30 bg-[length:200%_100%]" />
+                  <div className="activity-pulse h-full w-full rounded-[2px] bg-cyan-300/55" />
                 ) : (
                   <div
-                    className="h-full rounded-full bg-cyan-400/70 transition-all duration-500 ease-out"
+                    className="h-full rounded-[2px] bg-cyan-400/70 transition-all duration-500 ease-out"
                     style={{ width: `${progress}%` }}
                   />
                 )}
@@ -2407,25 +2422,25 @@ export default function Home() {
           {uploadBusy ? (
             /* While processing: hide the full dropzone, show only the compact file row */
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
+              <p className="mb-2 text-xs font-medium text-neutral-400">
                 <span className="inline-flex items-center gap-2 normal-case">
-                  <span className="flex size-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.035] font-display text-[10px] text-neutral-500">02</span>
+                  <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/50">02</span>
                   <span className="text-xs font-semibold text-neutral-300">{copy.stepUpload}</span>
                 </span>
               </p>
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#171a18] px-3.5 py-2.5 sm:gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#151a17] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:gap-3">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M560-360v-240l80 80 56-56-160-160-160 160 56 56 80-80v240h48Zm-80 200q-83 0-141.5-58.5T280-360v-400h400v400q0 83-58.5 141.5T480-160Zm0-80q50 0 85-35t35-85v-320H360v320q0 50 35 85t85 35ZM200-80q-33 0-56.5-23.5T120-160v-520h80v520h520v80H200Zm280-440Z" /></svg>
                   <span className="truncate text-sm text-neutral-200">{activeFileName}</span>
                 </div>
-                <span className="shrink-0 text-xs text-neutral-500 sm:ml-auto">{copy.processing}</span>
+                <span className="shrink-0 text-xs text-neutral-400 sm:ml-auto">{copy.processing}</span>
               </div>
             </div>
           ) : (
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-400">
+              <p className="mb-2 text-xs font-medium text-neutral-400">
                 <span className="inline-flex items-center gap-2 normal-case">
-                  <span className="flex size-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.035] font-display text-[10px] text-neutral-500">02</span>
+                  <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/50">02</span>
                   <span className="text-xs font-semibold text-neutral-300">{copy.stepUpload}</span>
                 </span>
               </p>
@@ -2447,7 +2462,7 @@ export default function Home() {
           )}
         </div>
         {isWarmingUp ? (
-          <div className="mt-3 rounded-lg border border-cyan-500/20 bg-neutral-950/60 p-4 shadow-inner">
+          <div className="mt-3 rounded-lg bg-[#121714] p-4">
             {/* Header row */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="space-y-0.5">
@@ -2462,7 +2477,7 @@ export default function Home() {
                 type="button"
                 onClick={cancelTranscription}
                 disabled={isCancelling}
-                className="inline-flex items-center gap-1.5 self-start rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60 sm:shrink-0"
+                className="inline-flex min-h-9 items-center gap-1.5 self-start px-2 py-1 text-xs font-medium text-red-300 transition-colors hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-60 sm:shrink-0"
               >
                 <Square className="size-3.5" />
                 {isCancelling ? copy.cancelling : copy.cancel}
@@ -2471,43 +2486,43 @@ export default function Home() {
 
             {/* Stats row */}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-medium tabular-nums text-cyan-300">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium tabular-nums text-cyan-200/85">
                 <Clock3 className="size-3.5" style={{ animationDuration: "3s" }} />
                 {copy.elapsed(warmUpElapsed)}
               </span>
 
               {totalSlices !== null && totalSlices > 1 && currentSlice !== null ? (
-                <span className="inline-flex items-center rounded-md border border-white/10 bg-neutral-800/60 px-2.5 py-1 text-xs text-neutral-400">
+                <span className="inline-flex items-center text-xs text-neutral-400">
                   {copy.slice(currentSlice, totalSlices)}
                 </span>
               ) : null}
 
               {totalChunks !== null ? (
-                <span className="inline-flex items-center rounded-md border border-white/10 bg-neutral-800/60 px-2.5 py-1 text-xs text-neutral-400">
+                <span className="inline-flex items-center text-xs text-neutral-400">
                   {copy.segmentCount(0, totalChunks)}
                 </span>
               ) : null}
 
               {roughAudioMinutes !== null ? (
-                <span className="inline-flex items-center rounded-md border border-white/10 bg-neutral-800/60 px-2.5 py-1 text-xs text-neutral-500">
+                <span className="inline-flex items-center text-xs text-neutral-400">
                   {copy.audioMinutes(roughAudioMinutes)}
                 </span>
               ) : null}
             </div>
 
             {/* Activity bar */}
-            <div role="progressbar" aria-label={copy.transcriptionInProgress} className="mt-3 h-1 overflow-hidden rounded-full bg-neutral-800">
-              <div className="h-full w-full animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-cyan-600/50 via-cyan-400 to-cyan-600/50 bg-[length:200%_100%]" />
+            <div role="progressbar" aria-label={copy.transcriptionInProgress} className="mt-3 h-1 overflow-hidden rounded-[2px] bg-neutral-800">
+              <div className="activity-pulse h-full w-full rounded-[2px] bg-cyan-300/70" />
             </div>
 
-            <p className="mt-2 text-xs text-neutral-600">
+            <p className="mt-2 text-xs text-neutral-400">
               {copy.keepTabActive}
             </p>
           </div>
         ) : null}
 
         {showProgressBar ? (
-          <div className="mt-3 space-y-2.5 rounded-lg border border-white/10 bg-neutral-950/70 p-3">
+          <div className="mt-3 space-y-2.5 rounded-lg bg-[#121714] p-3">
             {/* ── Top row: label + cancel ─────────────────────────────────── */}
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs font-medium text-neutral-200 sm:text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>{progressLabel}</p>
@@ -2515,7 +2530,7 @@ export default function Home() {
                 type="button"
                 onClick={cancelTranscription}
                 disabled={isCancelling}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-9 shrink-0 items-center gap-1.5 px-2 py-1 text-xs font-medium text-red-300 transition-colors hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Square className="size-3.5" />
                 {isCancelling ? copy.cancelling : copy.cancel}
@@ -2529,10 +2544,10 @@ export default function Home() {
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(progress)}
-              className="h-2 overflow-hidden rounded-full border border-white/10 bg-neutral-900/90"
+              className="h-2 overflow-hidden rounded-[2px] bg-neutral-900/90"
             >
               <div
-                className="h-full rounded-full bg-cyan-400 transition-all duration-300"
+                className="h-full rounded-[2px] bg-cyan-400 transition-all duration-300"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -2544,7 +2559,7 @@ export default function Home() {
                   <div
                     key={i}
                     className={[
-                      "h-1 flex-1 rounded-full transition-colors duration-300",
+                      "h-1 flex-1 rounded-[1px] transition-colors duration-300",
                       currentSlice !== null && i < currentSlice
                         ? "bg-cyan-400"
                         : currentSlice !== null && i === currentSlice - 1
@@ -2558,7 +2573,7 @@ export default function Home() {
 
             {/* ── ETA row ─────────────────────────────────────────────────── */}
             {etaLabel ? (
-              <p className="text-xs text-neutral-500" style={{ fontVariantNumeric: "tabular-nums" }}>{etaLabel}</p>
+              <p className="text-xs text-neutral-400" style={{ fontVariantNumeric: "tabular-nums" }}>{etaLabel}</p>
             ) : null}
             {loadingDetail && loadingDetail !== "compiling" ? (
               <p role="status" aria-live="polite" className="text-xs text-neutral-400">{loadingDetail}</p>
@@ -2567,13 +2582,13 @@ export default function Home() {
         ) : null}
 
         {status === "decoding" && !showProgressBar ? (
-          <div role="status" aria-live="polite" className="mt-3 flex flex-col gap-2 rounded-lg border border-white/10 bg-neutral-950/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div role="status" aria-live="polite" className="mt-3 flex flex-col gap-2 rounded-lg bg-[#121714] p-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-neutral-300 sm:text-sm">{loadingDetail || copy.decodingAudio}</p>
             <button
               type="button"
               onClick={cancelTranscription}
               disabled={isCancelling}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-9 items-center gap-1.5 px-2 py-1 text-xs font-medium text-red-300 transition-colors hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Square className="size-3.5" />
               {isCancelling ? copy.cancelling : copy.cancel}
@@ -2582,7 +2597,7 @@ export default function Home() {
         ) : null}
 
         {error ? (
-          <div role="alert" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          <div role="alert" className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">
             <AlertCircle className="size-4" />
             <span>{error}</span>
           </div>
@@ -2594,56 +2609,64 @@ export default function Home() {
           <div className="flex min-h-0 flex-col">
 
         {!output ? (
-          <div className="flex min-h-[320px] flex-col overflow-hidden rounded-lg border border-white/[0.09] bg-[#171a18] shadow-[0_18px_60px_rgba(0,0,0,0.2)] lg:min-h-0 lg:flex-1">
-            <div className="flex h-11 shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#1a1e1b] px-4">
+          <div className="flex min-h-[320px] flex-col overflow-hidden rounded-lg bg-[#151a17] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] lg:min-h-0 lg:flex-1">
+            <div className="flex h-11 shrink-0 items-center justify-between bg-[#19201b] px-4">
               <div className="flex items-center gap-2">
                 <span className="size-1.5 rounded-full bg-emerald-300/80" />
                 <span className="font-display text-sm font-semibold text-neutral-200">
                   {copy.transcriptPanelTitle}
                 </span>
               </div>
-              <span className="text-[11px] font-medium text-neutral-500">
+              <span className="text-[11px] font-medium text-neutral-400">
                 {showSkeleton ? copy.transcriptionInProgress : copy.transcriptReady}
               </span>
             </div>
 
             <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
-              <div className="mb-5 flex h-14 items-center justify-center rounded-lg border border-white/[0.08] bg-[#131614] px-4 shadow-inner">
-                <div className="flex items-end gap-1" aria-hidden="true">
-                  {[0.6, 1, 0.7, 0.9, 0.5, 1, 0.8].map((scale, index) => (
-                    <span
-                      key={index}
-                      className={["w-1 rounded-full", showSkeleton ? "bg-cyan-300/70" : "bg-emerald-300/45"].join(" ")}
-                      style={{
-                        height: `${scale * 24}px`,
-                        animation: showSkeleton
-                          ? `waveBar 0.9s ease-in-out ${index * 0.1}s infinite`
-                          : undefined,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
+              <svg
+                aria-hidden="true"
+                className={[
+                  "mb-8 h-auto w-full max-w-[36rem]",
+                  showSkeleton ? "text-cyan-200/70" : "text-emerald-100/55",
+                ].join(" ")}
+                fill="none"
+                viewBox="0 0 640 176"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M18 88h14l9-26 11 52 12-76 12 100 11-64 12 28 11-48 12 68 11-34h15l9-20 11 40 12-58 11 76 12-48 10 20h43"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="4"
+                />
+                <path d="M286 48v80" stroke="currentColor" strokeLinecap="round" strokeWidth="2" opacity="0.22" />
+                <path d="M318 48h286M318 88h226M318 128h266" stroke="currentColor" strokeLinecap="round" strokeWidth="4" opacity="0.72" />
+                <path d="M318 64h198M318 104h272M318 144h174" stroke="currentColor" strokeLinecap="round" strokeWidth="2" opacity="0.28" />
+                {showSkeleton ? (
+                  <path className="transcript-scan" d="M318 30v116" stroke="currentColor" strokeLinecap="round" strokeWidth="3" />
+                ) : null}
+              </svg>
 
               <p className="font-display text-base font-semibold text-neutral-200">
                 {showSkeleton ? copy.transcribingPlaceholder : copy.rotatingPhrases[0]}
               </p>
-              <p className="mt-1.5 max-w-md text-sm leading-5 text-neutral-500">
+              <p className="mt-1.5 max-w-md text-sm leading-5 text-neutral-400">
                 {showSkeleton ? copy.textWillAppear : copy.transcriptWillAppear}
               </p>
             </div>
           </div>
         ) : (
         <>
-        <div className={["overflow-hidden rounded-lg border border-white/[0.1] bg-[#171a18] shadow-[0_18px_60px_rgba(0,0,0,0.2)] lg:min-h-0 lg:flex-1 lg:overflow-y-auto", justCompleted ? "transcript-flash" : ""].join(" ")}>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#1a1e1b] px-4 py-2.5">
+        <div className={["overflow-hidden rounded-lg bg-[#151a17] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] lg:min-h-0 lg:flex-1 lg:overflow-y-auto", justCompleted ? "transcript-flash" : ""].join(" ")}>
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#19201b] px-4 py-2.5">
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
               <span className="inline-flex items-center gap-2 font-display text-sm font-semibold text-neutral-200">
                 <span className="size-1.5 rounded-full bg-emerald-300/80" />
                 {copy.transcriptPanelTitle}
               </span>
               {output ? (
-                <span className="text-xs font-medium text-neutral-500">
+                <span className="text-xs font-medium text-neutral-400">
                   {copy.wordCount(output.trim().split(/\s+/).filter(Boolean).length)}
                 </span>
               ) : null}
@@ -2691,10 +2714,10 @@ export default function Home() {
                   }
                 }}
                 className={[
-                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  "inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                   copiedButton === "text"
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                    : "border-white/[0.09] bg-[#121513] text-neutral-300 hover:border-white/20 hover:bg-white/[0.045] hover:text-white",
+                    ? "bg-emerald-400/10 text-emerald-200"
+                    : "text-neutral-300 hover:bg-white/[0.05] hover:text-white",
                 ].join(" ")}
               >
                 {copiedButton === "text" ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -2712,10 +2735,10 @@ export default function Home() {
                   }
                 }}
                 className={[
-                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  "inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                   copiedButton === "timestamps"
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                    : "border-white/[0.09] bg-[#121513] text-neutral-300 hover:border-white/20 hover:bg-white/[0.045] hover:text-white",
+                    ? "bg-emerald-400/10 text-emerald-200"
+                    : "text-neutral-300 hover:bg-white/[0.05] hover:text-white",
                 ].join(" ")}
               >
                 {copiedButton === "timestamps" ? <Check className="size-3.5" /> : <Clock3 className="size-3.5" />}
@@ -2725,7 +2748,7 @@ export default function Home() {
                 type="button"
                 disabled={!hasExportContent}
                 onClick={() => void handleSmartExport("export_json")}
-                className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-[#121513] px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.045] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <FileText className="size-3.5" />
                 {copy.exportJson}
@@ -2734,7 +2757,7 @@ export default function Home() {
                 type="button"
                 disabled={!hasExportContent}
                 onClick={() => void handleSmartExport("export_word")}
-                className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-[#121513] px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.045] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <svg className="size-4 shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M28 2H14l-2 2v6H4L2 12v16l2 2h14l2-2v-6h8l2-2V4l-2-2z" fill="#fff"/><path d="M28 2H14l-2 2v6h10l2 2v12h4l2-2V4l-2-2z" fill="#2B579A"/><path d="M24 22V10H12v20h14l-2-8z" fill="#2B579A"/><path d="M2 12l2-2h8l2 2v16l-2 2H4l-2-2V12z" fill="#2B579A"/><path d="M4 12h10v16H4V12z" fill="#2B579A"/><path d="M18.5 14L17 24h-1.5l-1-6.5L13.5 24H12l-1.5-10h1.3l.9 6.7 1.1-6.7h1.4l1 6.7.9-6.7h1.4z" fill="#fff"/></svg>
                 Word
@@ -2743,7 +2766,7 @@ export default function Home() {
                 type="button"
                 disabled={!hasExportContent}
                 onClick={() => void handleSmartExport("export_pdf")}
-                className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-[#121513] px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.045] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <svg className="size-4 shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 2h16l8 8v20l-2 2H4L2 30V4l2-2z" fill="#fff"/><path d="M20 2v8h8" fill="#E5252A"/><path d="M4 2h16v8h8v20l-2 2H4L2 30V4l2-2z" fill="#E5252A"/><path d="M8.5 24V14h3.2c1 0 1.7.3 2.2.8.5.5.7 1.2.7 2s-.2 1.5-.7 2c-.5.5-1.2.8-2.2.8H10v4.4H8.5zm1.5-5.8h1.5c.6 0 1-.1 1.3-.4.3-.3.4-.7.4-1.2s-.1-.9-.4-1.2c-.3-.3-.7-.4-1.3-.4H10v3.2zm6.5 5.8V14h2.8c1.6 0 2.7.4 3.4 1.2.7.8 1 2 1 3.4 0 1.5-.4 2.6-1.1 3.4-.7.8-1.8 1.2-3.3 1.2h-2.8zm1.5-1.3h1.2c1 0 1.7-.3 2.2-.8.5-.5.7-1.4.7-2.5s-.2-1.9-.7-2.5c-.5-.5-1.2-.8-2.2-.8H18v6.6z" fill="#fff"/></svg>
                 PDF
@@ -2760,7 +2783,7 @@ export default function Home() {
                       key={`${segment.start}-${segment.end}-${index}`}
                       className="grid grid-cols-[64px_1fr] gap-2.5 px-5 py-3 sm:grid-cols-[80px_1fr] sm:gap-3"
                     >
-                      <span className="pt-0.5 text-xs text-neutral-500">
+                      <span className="pt-0.5 text-xs text-neutral-400">
                         [{formatSegmentTimestamp(segment.start)}]
                       </span>
                       <p
@@ -2793,25 +2816,25 @@ export default function Home() {
         ) : null}
 
         {output.trim() && status !== "transcribing" && status !== "decoding" && status !== "loading" ? (
-          <div className="mt-3 rounded-lg border border-white/[0.09] bg-[#151816] px-4 py-3.5">
+          <div className="mt-3 bg-[#121714] px-4 py-3.5">
             <p className="mb-0.5 font-display text-sm font-semibold text-neutral-200">{copy.continueWithAi}</p>
-            <p className="mb-3 text-xs leading-relaxed text-neutral-500">
+            <p className="mb-3 text-xs leading-relaxed text-neutral-400">
               {copy.continueWithAiDescription}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" aria-label={copy.opensInNewTab("ChatGPT")} onClick={() => continueWithAi("https://chatgpt.com/")} className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-[#121513] px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.045] hover:text-white">
+              <button type="button" aria-label={copy.opensInNewTab("ChatGPT")} onClick={() => continueWithAi("https://chatgpt.com/")} className="inline-flex min-h-8 items-center gap-1.5 px-1.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:text-white">
                 <svg height="14" width="14" viewBox="0 0 256 260" xmlns="http://www.w3.org/2000/svg" className="shrink-0"><path d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.062 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.6zM37.158 197.93a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803zM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405zm179.466 41.695l-63.08-36.63L161.73 77.2a.82.82 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.243zm21.742-32.69l-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391zM88.061 139.098l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87-51.67 29.825a8.595 8.595 0 0 0-4.246 7.367l-.051 72.697zm11.868-25.58l28.138-16.217 28.188 16.218v32.434l-28.086 16.218-28.188-16.218-.052-32.434z" fill="#10A37F"/></svg>
                 ChatGPT
               </button>
-              <button type="button" aria-label={copy.opensInNewTab("Claude")} onClick={() => continueWithAi("https://claude.ai/")} className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-[#121513] px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.045] hover:text-white">
+              <button type="button" aria-label={copy.opensInNewTab("Claude")} onClick={() => continueWithAi("https://claude.ai/")} className="inline-flex min-h-8 items-center gap-1.5 px-1.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:text-white">
                 <svg height="14" width="14" viewBox="0 0 256 257" xmlns="http://www.w3.org/2000/svg" className="shrink-0"><path d="M50.228 170.321l50.357-28.257.843-2.463-.843-1.361h-2.463l-8.425-.519-28.776-.777-24.951-1.037-24.175-1.296L5.703 133.314 0 125.796l.583-3.759 5.12-3.435 7.324.648 16.202 1.102 24.304 1.685 17.628 1.037 26.119 2.722h4.148l.583-1.685-1.426-1.037-1.102-1.037-25.246-17.08-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.686-10.758 7-7.713 9.398.648 2.398.648 9.527 7.324 20.35 15.748 26.572 19.573 3.889 3.24 1.555-1.102.194-.777-1.749-2.916-14.453-26.119-25.989-26.572-6.87-11.018-1.814-6.61c-.648-2.722-1.102-4.99-1.102-7.777l7.971-10.823 4.407-1.426 10.63 1.426 4.471 3.889 6.611 15.1 10.694 23.786 16.591 32.34 4.861 9.592 2.851 8.879.972 2.722h1.685v-1.555l1.361-18.212 2.527-22.36 2.463-28.775.843-8.102 4.018-9.721 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.731-3.046 19.767-5.962 30.979-3.889 20.736 2.269 0 2.592-2.592 10.5-13.934 17.628-22.035 7.778-8.749 9.073-9.657 5.833-4.602 11.018 0 8.101 12.054-3.629 12.444-11.342 14.387-9.398 12.185-13.48 18.147-8.425 14.517 1.296 1.167 2.009-.195 30.461-6.481 16.462-2.981 19.637-3.37 8.879 4.148.972 4.212-3.5 8.62-22.299 5.185-24.627 4.925-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389 17.304 0 32.211 2.398 8.425 5.574 5.055 6.804-.843 5.185-12.962 6.61-17.499-4.148-40.83-9.721-13.999-3.5-1.944 0v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.361 6.157-3.435 4.861-.629-.519-23.526-17.693-9.073-7.971-20.545-17.306-1.361 0v1.815l4.731 6.934 25.017 37.59 1.296 11.536-1.815 3.759-6.481 2.269-7.13-1.296-14.647-20.545-15.101-23.137-12.184-20.739-1.491.843-7.194 77.448-3.37 3.953-7.777 2.981-6.481-4.925-3.435-7.972 3.435-15.748 4.148-20.111 3.37-16.328 3.046-20.286 1.815-6.74-.13-.454-1.491.195-15.296 21 23.267 31.432 18.406 19.703 3.593 1.749-7.648-3.953.713-7.065 4.277-6.287 25.471-32.405 15.36-20.091 9.916-11.601-.065-1.685-.583 0L44.071 198.125l-12.054 1.555-5.185-4.861.648-7.971 2.463-2.593 20.35-13.999-.064-.065z" fill="#D97757"/></svg>
                 Claude
               </button>
-              <button type="button" aria-label={copy.opensInNewTab("Gemini")} onClick={() => continueWithAi("https://gemini.google.com/")} className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-[#121513] px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.045] hover:text-white">
+              <button type="button" aria-label={copy.opensInNewTab("Gemini")} onClick={() => continueWithAi("https://gemini.google.com/")} className="inline-flex min-h-8 items-center gap-1.5 px-1.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:text-white">
                 <svg height="14" width="14" viewBox="0 0 73 73" xmlns="http://www.w3.org/2000/svg" className="shrink-0"><path d="M36.5 72.76c-2.81-18.787-17.473-33.45-36.26-36.26C18.787 33.69 33.45 19.027 36.26.24c2.81 18.787 17.473 33.45 36.26 36.26-18.787 2.81-33.45 17.473-36.26 36.26z" fill="#076EFF"/></svg>
                 Gemini
               </button>
-              <button type="button" aria-label={copy.opensInNewTab("Grok")} onClick={() => continueWithAi("https://grok.com/")} className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.09] bg-[#121513] px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:border-white/20 hover:bg-white/[0.045] hover:text-white">
+              <button type="button" aria-label={copy.opensInNewTab("Grok")} onClick={() => continueWithAi("https://grok.com/")} className="inline-flex min-h-8 items-center gap-1.5 px-1.5 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:text-white">
                 <svg height="14" width="14" viewBox="0 0 256 246" xmlns="http://www.w3.org/2000/svg" className="shrink-0"><path d="M63.831 56.843C91.3 29.363 131.465 21.978 165.542 34.973l2.314.917c7.645 2.844 14.309 6.89 19.507 10.652l-28.857 13.341c-26.869-11.285-57.649-3.608-76.435 15.2-25.406 25.414-30.54 69.484-.765 97.96L0 245.765c4.296-5.924 9.457-11.574 14.749-17.178l5.816-6.13 2.608-2.775c15.531-16.654 28.81-33.769 20.496-56.708l-.766-1.98C28.311 125.496 36.809 83.897 63.83 56.843zM220.786 35.256L256 0l-10.128 14.069C224.778 43.785 215.416 62.493 224.762 102.728l-.065-.065c7.23 30.728-.504 64.803-25.472 89.802-31.478 31.538-81.852 38.558-123.336 10.17l28.923-13.407c26.476 10.41 55.442 5.839 76.26-15.003 20.818-20.843 25.493-51.2 15.03-76.461-1.989-4.79-7.952-5.993-12.125-2.91L85.87 157.755 220.786 35.147v.109z" fill="#fff"/></svg>
                 Grok
               </button>
@@ -2826,19 +2849,19 @@ export default function Home() {
 
         {/* ── Title input modal for Word/PDF export ── */}
         {isExportTitleOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
             <div
               ref={exportDialogRef}
               role="dialog"
               aria-modal="true"
               aria-labelledby="export-dialog-title"
               aria-describedby="export-dialog-description"
-              className="w-full max-w-md rounded-lg border border-white/10 bg-[#1a1e1b] p-6 shadow-2xl"
+              className="w-full max-w-md rounded-lg bg-[#1a1e1b] p-6 shadow-[0_12px_28px_rgba(0,0,0,0.36)]"
             >
               <h2 id="export-dialog-title" className="mb-1 text-base font-semibold text-neutral-100">
                 {copy.documentTitle}
               </h2>
-              <p id="export-dialog-description" className="mb-4 text-xs text-neutral-500">
+              <p id="export-dialog-description" className="mb-4 text-xs text-neutral-400">
                 {copy.documentTitleDescription}
               </p>
               <label htmlFor="export-document-title" className="sr-only">
@@ -2854,7 +2877,7 @@ export default function Home() {
                   if (event.key === "Enter") void confirmExportWithTitle();
                 }}
                 placeholder={copy.documentTitlePlaceholder}
-                className="mb-4 w-full rounded-lg border border-white/10 bg-neutral-800/60 px-4 py-2.5 text-sm text-neutral-100 outline-none placeholder:text-neutral-500 focus:border-cyan-400/40"
+                className="mb-4 w-full rounded-lg border border-white/10 bg-neutral-800/60 px-4 py-2.5 text-sm text-neutral-100 outline-none placeholder:text-neutral-400 focus:border-emerald-200/40"
               />
               <div className="flex items-center justify-end gap-2">
                 <button
@@ -2867,7 +2890,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => void confirmExportWithTitle()}
-                  className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-cyan-400"
+                  className="rounded-md bg-emerald-800 px-4 py-2 text-sm font-medium text-emerald-50 transition-colors hover:bg-emerald-700"
                 >
                   {pendingExportAction === "export_word" ? copy.downloadWord : copy.downloadPdf}
                 </button>
@@ -2876,27 +2899,25 @@ export default function Home() {
           </div>
         )}
 
-        <footer className="mt-6 flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-neutral-500">
+        <footer className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 pb-1 text-xs">
+          <p className="text-neutral-400">
             {copy.developedBy}{" "}
             <span className="font-medium text-neutral-300">Onat Özmen</span>
           </p>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-5">
             <a
               href={isTurkishPage ? "/tr/privacy" : "/privacy"}
-              className="text-xs text-neutral-500 transition-colors hover:text-neutral-300"
+              className="text-neutral-400 transition-colors hover:text-neutral-200"
             >
               {copy.privacyPolicy}
             </a>
-            <span className="hidden text-neutral-700 sm:inline">·</span>
             <a
               href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-neutral-500 transition-colors hover:text-cyan-300"
+              className="text-neutral-400 transition-colors hover:text-neutral-200"
             >
-              <Linkedin className="size-3.5" />
-              LinkedIn
+              LinkedIn <span aria-hidden="true">↗</span>
             </a>
           </div>
         </footer>

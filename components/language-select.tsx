@@ -41,7 +41,7 @@ export const LanguageSelect = forwardRef<HTMLButtonElement, LanguageSelectProps>
           ref={forwardedRef}
           className={[
             "flex h-10 w-full items-center justify-between gap-3 rounded-lg border py-2 pl-3 pr-3 text-left text-sm font-semibold outline-none transition-colors",
-            "focus-visible:ring-2 focus-visible:ring-cyan-300/45 data-[state=open]:border-cyan-300/45 data-[state=open]:ring-2 data-[state=open]:ring-cyan-300/20",
+            "focus-visible:ring-2 focus-visible:ring-emerald-200/45 data-[state=open]:border-emerald-200/45 data-[state=open]:ring-2 data-[state=open]:ring-emerald-200/20",
             selectedOption
               ? "border-neutral-600/80 bg-[#171a18] text-neutral-100 hover:border-neutral-500"
               : "border-neutral-700/80 bg-[#151816] text-neutral-400 hover:border-neutral-600 hover:text-neutral-200",
@@ -65,7 +65,7 @@ export const LanguageSelect = forwardRef<HTMLButtonElement, LanguageSelectProps>
             position="popper"
             sideOffset={6}
             collisionPadding={12}
-            className="z-[100] max-h-[min(24rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-white/[0.12] bg-[#151816] shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+            className="z-[100] max-h-[min(24rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-white/[0.12] bg-[#151816] shadow-[0_12px_28px_rgba(0,0,0,0.38)]"
           >
             <Select.ScrollUpButton className="flex h-7 items-center justify-center text-neutral-400">
               <ChevronUp aria-hidden="true" className="size-4" />

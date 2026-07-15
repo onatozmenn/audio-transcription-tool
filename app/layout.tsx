@@ -1,20 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Source_Sans_3 } from "next/font/google";
 import { headers } from "next/headers";
 import "flag-icons/css/flag-icons.min.css";
 import "./globals.css";
-
-const bodyFont = Source_Sans_3({
-  variable: "--font-source-sans",
-  subsets: ["latin", "latin-ext"],
-  display: "swap",
-});
-
-const displayFont = Manrope({
-  variable: "--font-manrope",
-  subsets: ["latin", "latin-ext"],
-  display: "swap",
-});
 
 const CANONICAL_URL = "https://audio-transcription.app";
 const TR_URL = `${CANONICAL_URL}/tr`;
@@ -198,7 +185,7 @@ export default async function RootLayout({
           }}
         />
       </head>
-      <body className={`${bodyFont.variable} ${displayFont.variable} text-neutral-100 antialiased`}>
+      <body className="text-neutral-100 antialiased">
         {children}
       </body>
     </html>

@@ -1,50 +1,58 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-source-sans);
-  --font-display: var(--font-manrope);
+  --font-sans: var(--font-ui);
+  --font-display: var(--font-heading);
 }
 
 :root {
-  --app-canvas: #101311;
-  --app-surface: #171a18;
-  --app-surface-raised: #1d211e;
+  --font-ui: "Segoe UI Variable Text", "Aptos", "Helvetica Neue", sans-serif;
+  --font-heading: "Segoe UI Variable Display", "Aptos Display", "Helvetica Neue", sans-serif;
+  --app-canvas: #0c100e;
+  --app-surface: #151a17;
+  --app-surface-raised: #1a201c;
   --app-line: rgba(231, 236, 232, 0.1);
 }
 
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+@keyframes activityPulse {
+  0%, 100% { opacity: 0.38; }
+  50% { opacity: 0.82; }
 }
 
-@keyframes shake {
-  0%, 100% { transform: translateX(0) rotate(0deg); }
-  15%       { transform: translateX(-8px) rotate(-2.5deg); }
-  30%       { transform: translateX(8px) rotate(2.5deg); }
-  45%       { transform: translateX(-6px) rotate(-1.5deg); }
-  60%       { transform: translateX(6px) rotate(1.5deg); }
-  75%       { transform: translateX(-3px) rotate(0deg); }
-  90%       { transform: translateX(3px); }
+@keyframes languageAttention {
+  0%, 100% { outline-color: rgba(110, 231, 183, 0); }
+  30%, 70% { outline-color: rgba(110, 231, 183, 0.58); }
 }
 
 .lang-shake {
-  animation: shake 0.45s ease-in-out;
+  border-radius: 8px;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  animation: languageAttention 0.65s ease-out;
 }
 
 @keyframes transcriptFlash {
-  0%   { box-shadow: 0 0 0 0px rgba(52,211,153,0); }
-  15%  { box-shadow: 0 0 0 2px rgba(52,211,153,0.55), 0 0 28px rgba(52,211,153,0.18); }
-  65%  { box-shadow: 0 0 0 2px rgba(52,211,153,0.55), 0 0 28px rgba(52,211,153,0.18); }
-  100% { box-shadow: 0 0 0 0px rgba(52,211,153,0); }
+  0%, 100% { background-color: #151a17; }
+  22%, 64% { background-color: #1a251e; }
 }
 
 .transcript-flash {
   animation: transcriptFlash 2.4s ease-in-out forwards;
 }
 
-@keyframes waveBar {
-  0%, 100% { transform: scaleY(0.4); }
-  50%      { transform: scaleY(1); }
+.activity-pulse {
+  animation: activityPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes transcriptScan {
+  0% { opacity: 0; transform: translateX(0); }
+  12% { opacity: 0.75; }
+  82% { opacity: 0.75; }
+  100% { opacity: 0; transform: translateX(286px); }
+}
+
+.transcript-scan {
+  animation: transcriptScan 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
 html,
@@ -77,16 +85,69 @@ body {
 }
 
 body {
-  background-image:
-    linear-gradient(rgba(232, 239, 234, 0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(232, 239, 234, 0.018) 1px, transparent 1px);
-  background-size: 36px 36px;
   color: #eef2ef;
-  font-family: var(--font-source-sans), ui-sans-serif, system-ui, sans-serif !important;
+  font-family: var(--font-ui) !important;
 }
 
 .font-display {
-  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif !important;
+  font-family: var(--font-heading) !important;
+}
+
+.privacy-copy {
+  color: #a3aaa5;
+  font-size: 0.9375rem;
+  line-height: 1.8;
+}
+
+.privacy-copy > * + * {
+  margin-top: 1rem;
+}
+
+.privacy-copy ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+
+.privacy-copy li + li {
+  margin-top: 0.75rem;
+}
+
+.privacy-copy li::marker {
+  color: rgba(167, 243, 208, 0.42);
+}
+
+.privacy-copy strong {
+  color: #e5e9e6;
+  font-weight: 600;
+}
+
+.privacy-copy a {
+  color: #a7d8cc;
+  text-decoration-line: underline;
+  text-decoration-color: rgba(167, 216, 204, 0.38);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  transition: color 150ms ease, text-decoration-color 150ms ease;
+}
+
+.privacy-copy a:hover {
+  color: #d2eee7;
+  text-decoration-color: rgba(210, 238, 231, 0.7);
+}
+
+.privacy-copy a:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid rgba(167, 243, 208, 0.5);
+  outline-offset: 3px;
+}
+
+.privacy-copy code {
+  border-radius: 2px;
+  background: #1a211d;
+  color: #d4dad6;
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82em;
+  padding: 0.12rem 0.32rem;
 }
 
 ::selection {

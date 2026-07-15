@@ -119,23 +119,23 @@ export function UploadDropzone({
         }}
         className={[
           "group relative flex min-h-40 w-full cursor-pointer flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed p-4 text-center outline-none transition-all duration-200 ease-out sm:min-h-44 sm:p-5",
-          "hover:border-cyan-300/35 hover:bg-white/[0.035] focus-visible:ring-2 focus-visible:ring-cyan-300/50",
-          disabled ? "cursor-not-allowed border-neutral-800 bg-neutral-900/35 opacity-75" : "",
+          "hover:border-emerald-200/35 hover:bg-white/[0.035] focus-visible:ring-2 focus-visible:ring-emerald-200/50",
+          disabled ? "cursor-not-allowed border-neutral-800 bg-neutral-900/35" : "",
           isDragging
-            ? "border-cyan-300/70 bg-cyan-300/[0.08] shadow-[inset_0_0_0_1px_rgba(103,232,249,0.12)]"
+            ? "border-emerald-200/70 bg-emerald-200/[0.08] shadow-[inset_0_0_0_1px_rgba(167,243,208,0.12)]"
             : "border-neutral-700/80 bg-[#151816]/85",
           !isDragging && error ? "border-red-500/70 bg-red-500/10" : "",
         ].join(" ")}
       >
         <div
           className={[
-            "rounded-md border p-2 transition-colors",
+            "mb-1 transition-colors",
             isDragging
-              ? "border-cyan-300/70 bg-cyan-300/15 text-cyan-200"
-              : "border-neutral-700/80 bg-neutral-800/70 text-neutral-300 group-hover:border-neutral-500",
+              ? "text-emerald-100"
+              : "text-neutral-500 group-hover:text-neutral-300",
           ].join(" ")}
         >
-          {error ? <XCircle className="size-5" /> : <UploadCloud className="size-5" />}
+          {error ? <XCircle className="size-7 text-red-300" /> : <UploadCloud className="size-7" />}
         </div>
 
         <div className="space-y-1.5">
@@ -143,32 +143,32 @@ export function UploadDropzone({
             {isDragging ? copy.dropHere : copy.uploadPrompt}
           </p>
           <p className="text-xs text-neutral-400">
-            {copy.or} <span className="text-cyan-300">{copy.browse}</span>
+            {copy.or} <span className="text-emerald-200/85">{copy.browse}</span>
           </p>
         </div>
 
-        <p className="max-w-xl text-[11px] leading-4 text-neutral-500">{copy.acceptedFormats}</p>
+        <p className="max-w-xl text-[11px] leading-4 text-neutral-400">{copy.acceptedFormats}</p>
         {disabled && disabledReason ? (
-          <p id={disabledReasonId} className="text-[11px] font-medium text-amber-200/70">
+          <p id={disabledReasonId} className="text-[11px] font-medium text-amber-200/80">
             {disabledReason}
           </p>
         ) : null}
       </div>
 
       {error ? (
-        <div role="alert" className="mt-3 flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+        <div role="alert" className="mt-3 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">
           <XCircle className="size-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
       {selectedFile ? (
-        <div role="status" aria-label={copy.selectedFile(selectedFile.name)} className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#171a18] px-3.5 py-2.5 sm:gap-3">
+        <div role="status" aria-label={copy.selectedFile(selectedFile.name)} className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#151a17] px-3.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor" className="shrink-0 text-neutral-400"><path d="M560-360v-240l80 80 56-56-160-160-160 160 56 56 80-80v240h48Zm-80 200q-83 0-141.5-58.5T280-360v-400h400v400q0 83-58.5 141.5T480-160Zm0-80q50 0 85-35t35-85v-320H360v320q0 50 35 85t85 35ZM200-80q-33 0-56.5-23.5T120-160v-520h80v520h520v80H200Zm280-440Z" /></svg>
             <span className="truncate text-sm text-neutral-200">{selectedFile.name}</span>
           </div>
-          <span className="shrink-0 text-xs tabular-nums text-neutral-500 sm:ml-auto">{formatFileSize(selectedFile.size)}</span>
+          <span className="shrink-0 text-xs tabular-nums text-neutral-400 sm:ml-auto">{formatFileSize(selectedFile.size)}</span>
         </div>
       ) : null}
     </div>
