@@ -2287,7 +2287,7 @@ export default function Home() {
   );
 
   return (
-    <main className="relative min-h-screen overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:h-screen lg:overflow-hidden lg:px-8">
+    <main className="relative min-h-screen select-none overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:h-screen lg:overflow-hidden lg:px-8">
       <div className="mx-auto flex h-full w-full max-w-[1440px] flex-col">
 
         <header className="mb-5 border-b border-white/[0.08] pb-4">
@@ -2753,7 +2753,7 @@ export default function Home() {
 
           <div>
             {segments.length > 0 && viewMode === "timestamps" ? (
-              <div className="max-h-[560px] overflow-y-auto">
+              <div className="max-h-[560px] select-text overflow-y-auto">
                 <ul className="divide-y divide-white/[0.06]">
                   {segments.map((segment, index) => (
                     <li
@@ -2779,7 +2779,7 @@ export default function Home() {
                 aria-label={copy.transcriptLabel}
                 value={output}
                 className={[
-                  "h-[360px] w-full resize-none overflow-y-auto border-0 bg-transparent p-5 font-sans text-sm leading-6 text-neutral-200 outline-none",
+                  "h-[360px] w-full resize-none select-text overflow-y-auto border-0 bg-transparent p-5 font-sans text-sm leading-6 text-neutral-200 outline-none",
                 ].join(" ")}
               />
             ) : null}
