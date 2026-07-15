@@ -1,15 +1,8 @@
 @import "tailwindcss";
 
-@font-face {
-  font-family: "TwemojiFlags";
-  src: url("https://cdn.jsdelivr.net/npm/country-flag-emoji-polyfill@0.1/dist/TwemojiCountryFlags.woff2") format("woff2");
-  font-display: swap;
-  unicode-range: U+1F1E0-1F1FF;
-}
-
 @theme inline {
-  --font-sans: "TwemojiFlags", var(--font-source-sans);
-  --font-display: "TwemojiFlags", var(--font-manrope);
+  --font-sans: var(--font-source-sans);
+  --font-display: var(--font-manrope);
 }
 
 :root {

@@ -1,0 +1,15 @@
+{
+  "files.exclude": {
+    "**/.next": true,
+    "**/node_modules": true,
+    "**/next-env.d.ts": true,
+    "**/tsconfig.tsbuildinfo": true
+  },
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    ".env.example": ".env.local",
+    "package.json": "pnpm-lock.yaml, pnpm-workspace.yaml",
+    "next.config.mjs": "postcss.config.mjs, vercel.json"
+  }
+}

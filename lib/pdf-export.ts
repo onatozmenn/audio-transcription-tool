@@ -19,11 +19,11 @@ function exportSelectablePdf(options: PdfExportOptions): void {
 
   if (options.title.trim()) {
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
+    doc.setFontSize(22);
     doc.setTextColor(255, 0, 0);
     const titleLines = doc.splitTextToSize(options.title.trim(), maxWidth) as string[];
-    doc.text(titleLines, MARGIN_MM, y);
-    y += titleLines.length * 8 + 6;
+    doc.text(titleLines, PAGE_WIDTH_MM / 2, y, { align: "center" });
+    y += titleLines.length * 10 + 8;
   }
 
   doc.setFont("helvetica", "normal");
@@ -32,12 +32,16 @@ function exportSelectablePdf(options: PdfExportOptions): void {
   const textLines = doc.splitTextToSize(options.text, maxWidth) as string[];
   const lineHeight = 6;
 
-  for (const line of textLines) {
+  for (let lineIndex = 0; lineIndex < textLines.length; lineIndex += 1) {
+    const line = textLines[lineIndex];
     if (y + lineHeight > PAGE_HEIGHT_MM - MARGIN_MM) {
       doc.addPage();
       y = 25;
     }
-    doc.text(line, MARGIN_MM, y, { maxWidth, align: "justify" });
+    doc.text(line, MARGIN_MM, y, {
+      maxWidth,
+      align: lineIndex === textLines.length - 1 ? "left" : "justify",
+    });
     y += lineHeight;
   }
 
@@ -141,19 +145,59 @@ function exportUnicodeCanvasPdf(options: PdfExportOptions): void {
     color: string,
     lineHeight: number,
     paragraphSpacing: number,
+    alignment: "center" | "justify",
   ) => {
     context.font = font;
     context.fillStyle = color;
 
+    const drawJustifiedLine = (line: string, isLastLine: boolean) => {
+      const words = line.trim().split(/\s+/u).filter(Boolean);
+      if (isLastLine || words.length < 2) {
+        context.textAlign = isRtl ? "right" : "left";
+        context.fillText(line, textX, y, maxWidth);
+        return;
+      }
+
+      const wordsWidth = words.reduce(
+        (total, word) => total + context.measureText(word).width,
+        0,
+      );
+      const gapWidth = Math.max(0, (maxWidth - wordsWidth) / (words.length - 1));
+
+      if (isRtl) {
+        context.textAlign = "right";
+        let cursor = canvas.width - margin;
+        for (const word of words) {
+          context.fillText(word, cursor, y);
+          cursor -= context.measureText(word).width + gapWidth;
+        }
+        return;
+      }
+
+      context.textAlign = "left";
+      let cursor = margin;
+      for (const word of words) {
+        context.fillText(word, cursor, y);
+        cursor += context.measureText(word).width + gapWidth;
+      }
+    };
+
     for (const paragraph of value.split(/\r?\n/u)) {
       const lines = wrapCanvasText(context, paragraph, maxWidth, options.locale);
-      for (const line of lines) {
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex];
         if (y + lineHeight > bottom) {
           commitPage();
           context.font = font;
           context.fillStyle = color;
         }
-        context.fillText(line, textX, y, maxWidth);
+
+        if (alignment === "center") {
+          context.textAlign = "center";
+          context.fillText(line, canvas.width / 2, y, maxWidth);
+        } else {
+          drawJustifiedLine(line, lineIndex === lines.length - 1);
+        }
         y += lineHeight;
         pageHasContent = true;
       }
@@ -165,10 +209,11 @@ function exportUnicodeCanvasPdf(options: PdfExportOptions): void {
   if (options.title.trim()) {
     drawWrappedText(
       options.title.trim(),
-      '700 34px "Noto Sans", "Segoe UI", sans-serif',
+      '700 46px "Noto Sans", "Segoe UI", sans-serif',
       "#ff0000",
-      45,
-      18,
+      58,
+      30,
+      "center",
     );
   }
   drawWrappedText(
@@ -177,6 +222,7 @@ function exportUnicodeCanvasPdf(options: PdfExportOptions): void {
     "#000000",
     36,
     12,
+    "justify",
   );
   commitPage();
   doc.save(options.fileName);

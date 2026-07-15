@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/lint.json
 
 # next.js
 /.next/

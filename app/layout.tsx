@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, Source_Sans_3 } from "next/font/google";
 import { headers } from "next/headers";
+import "flag-icons/css/flag-icons.min.css";
 import "./globals.css";
 
 const bodyFont = Source_Sans_3({

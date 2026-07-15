@@ -3,7 +3,6 @@
 import {
   AlertCircle,
   Check,
-  ChevronDown,
   Clock3,
   Copy,
   FileText,
@@ -13,6 +12,7 @@ import {
 import { usePathname } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { LanguageSelect } from "@/components/language-select";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import {
   BLOB_UPLOAD_ACCESS,
@@ -38,7 +38,7 @@ type WhisperLanguage =
   | "japanese"
   | "korean";
 
-type LanguageOption = { value: WhisperLanguage; flag: string };
+type LanguageOption = { value: WhisperLanguage; countryCode: string };
 type ProgressPhase = "download" | "transcribing";
 type CopyState = "idle" | "success" | "error";
 type SmartExportAction = "copy_text_only" | "copy_with_timestamps" | "export_json" | "export_word" | "export_pdf";
@@ -113,18 +113,18 @@ type WorkerResponse =
   | { type: "error"; error: string; requestId?: number };
 
 const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { value: "english", flag: "🇬🇧" },
-  { value: "turkish", flag: "🇹🇷" },
-  { value: "spanish", flag: "🇪🇸" },
-  { value: "french", flag: "🇫🇷" },
-  { value: "german", flag: "🇩🇪" },
-  { value: "italian", flag: "🇮🇹" },
-  { value: "portuguese", flag: "🇵🇹" },
-  { value: "russian", flag: "🇷🇺" },
-  { value: "arabic", flag: "🇸🇦" },
-  { value: "hindi", flag: "🇮🇳" },
-  { value: "japanese", flag: "🇯🇵" },
-  { value: "korean", flag: "🇰🇷" },
+  { value: "english", countryCode: "gb" },
+  { value: "turkish", countryCode: "tr" },
+  { value: "spanish", countryCode: "es" },
+  { value: "french", countryCode: "fr" },
+  { value: "german", countryCode: "de" },
+  { value: "italian", countryCode: "it" },
+  { value: "portuguese", countryCode: "pt" },
+  { value: "russian", countryCode: "ru" },
+  { value: "arabic", countryCode: "sa" },
+  { value: "hindi", countryCode: "in" },
+  { value: "japanese", countryCode: "jp" },
+  { value: "korean", countryCode: "kr" },
 ];
 
 const TARGET_SAMPLE_RATE = 16_000;
@@ -547,13 +547,20 @@ export default function Home() {
   const locale: AppLocale = pathname === "/tr" || pathname.startsWith("/tr/") ? "tr" : "en";
   const isTurkishPage = locale === "tr";
   const copy = APP_COPY[locale];
+  const languageOptions = useMemo(
+    () => LANGUAGE_OPTIONS.map((option) => ({
+      ...option,
+      label: copy.languageNames[option.value],
+    })),
+    [copy],
+  );
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef(0);
   const loadedModelRef = useRef<string | null>(null);
   const copyResetTimeoutRef = useRef<number | null>(null);
   const copiedBtnTimeoutRef = useRef<number | null>(null);
   const outputTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const languageSelectRef = useRef<HTMLSelectElement | null>(null);
+  const languageSelectRef = useRef<HTMLButtonElement | null>(null);
   const exportDialogRef = useRef<HTMLDivElement | null>(null);
   const transcribeStartedAtRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1972,13 +1979,13 @@ export default function Home() {
       if (title.trim()) {
         children.push(
           new Paragraph({
-            alignment: AlignmentType.JUSTIFIED,
-            spacing: { after: 300 },
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 420 },
             children: [
               new TextRun({
                 text: title.trim(),
                 font: "Calibri Light",
-                size: 32, // half-points: 32 = 16pt
+                size: 44, // half-points: 44 = 22pt
                 color: "FF0000",
                 bold: true,
               }),
@@ -2329,29 +2336,16 @@ export default function Home() {
             className={["relative block", isLangShaking ? "lang-shake" : ""].join(" ")}
             onAnimationEnd={() => setIsLangShaking(false)}
           >
-            <select
+            <LanguageSelect
               id="audio-language"
               ref={languageSelectRef}
-              value={selectedLanguage ?? ""}
-              onChange={(event) => {
-                const nextLanguage = event.target.value as WhisperLanguage;
-                setSelectedLanguage(nextLanguage || null);
+              value={selectedLanguage}
+              placeholder={copy.selectLanguage}
+              options={languageOptions}
+              onValueChange={(nextLanguage) => {
+                setSelectedLanguage(nextLanguage as WhisperLanguage);
               }}
-              className={[
-                "h-10 w-full appearance-none rounded-lg border py-2 pl-3 pr-9 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-300/45",
-                selectedLanguage
-                  ? "border-neutral-600/80 bg-[#171a18] text-neutral-100 hover:border-neutral-500"
-                  : "border-neutral-700/80 bg-[#151816] text-neutral-400 hover:border-neutral-600 hover:text-neutral-200",
-              ].join(" ")}
-            >
-              <option value="" disabled>{copy.selectLanguage}</option>
-              {LANGUAGE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.flag} {copy.languageNames[option.value]}
-                </option>
-              ))}
-            </select>
-            <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-3.5 -translate-y-1/2 text-neutral-400" />
+            />
           </div>
         </div>
 
@@ -2799,7 +2793,7 @@ export default function Home() {
         ) : null}
 
         {output.trim() && status !== "transcribing" && status !== "decoding" && status !== "loading" ? (
-          <div className="mt-3 rounded-lg border border-white/[0.09] border-l-2 border-l-cyan-300/35 bg-[#151816] px-4 py-3.5">
+          <div className="mt-3 rounded-lg border border-white/[0.09] bg-[#151816] px-4 py-3.5">
             <p className="mb-0.5 font-display text-sm font-semibold text-neutral-200">{copy.continueWithAi}</p>
             <p className="mb-3 text-xs leading-relaxed text-neutral-500">
               {copy.continueWithAiDescription}
