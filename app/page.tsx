@@ -2658,8 +2658,8 @@ export default function Home() {
           </div>
         ) : (
         <>
-        <div className={["overflow-hidden rounded-lg bg-[#151a17] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] lg:min-h-0 lg:flex-1 lg:overflow-y-auto", justCompleted ? "transcript-flash" : ""].join(" ")}>
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#19201b] px-4 py-2.5">
+        <div className={["flex flex-col overflow-hidden rounded-lg bg-[#151a17] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] lg:min-h-0 lg:flex-1", justCompleted ? "transcript-flash" : ""].join(" ")}>
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 bg-[#19201b] px-4 py-2.5">
             <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
               <span className="inline-flex items-center gap-2 font-display text-sm font-semibold text-neutral-200">
                 <span className="size-1.5 rounded-full bg-emerald-300/80" />
@@ -2774,9 +2774,9 @@ export default function Home() {
             </div>
           </div>
 
-          <div>
+          <div className="min-h-0 flex-1">
             {segments.length > 0 && viewMode === "timestamps" ? (
-              <div className="max-h-[560px] select-text overflow-y-auto">
+              <div className="max-h-[560px] select-text overflow-y-auto lg:h-full lg:max-h-none">
                 <ul className="divide-y divide-white/[0.06]">
                   {segments.map((segment, index) => (
                     <li
@@ -2802,7 +2802,7 @@ export default function Home() {
                 aria-label={copy.transcriptLabel}
                 value={output}
                 className={[
-                  "h-[360px] w-full resize-none select-text overflow-y-auto border-0 bg-transparent p-5 font-sans text-sm leading-6 text-neutral-200 outline-none",
+                  "h-[360px] w-full resize-none select-text overflow-y-auto border-0 bg-transparent p-5 font-sans text-sm leading-6 text-neutral-200 outline-none lg:h-full",
                 ].join(" ")}
               />
             ) : null}
