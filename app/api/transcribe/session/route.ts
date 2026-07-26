@@ -8,7 +8,9 @@ import {
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const SESSION_WINDOW_MS = 30 * 60 * 1000;
-const MAX_SESSION_STARTS_PER_WINDOW = 10;
+// Mobile carriers put many subscribers behind a single CGNAT address, so a
+// per-IP budget that suits one desktop user locks out an entire cell.
+const MAX_SESSION_STARTS_PER_WINDOW = 30;
 
 type CreateSessionRequest = {
   fileName?: string;

@@ -38,16 +38,33 @@ describe("rate limit", () => {
     expect(second.allowed).toBe(true);
   });
 
-  it("fails closed in production when the shared store is not configured", async () => {
+  it("degrades to the in-process limiter in production when no shared store is configured", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("RATE_LIMIT_HASH_SECRET", "independent-rate-limit-secret");
     vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
     vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
-
-    await expect(checkRateLimit({
+    const options = {
       identifier: "203.0.113.11",
       limit: 1,
       namespace: `production-${randomUUID()}`,
+      windowMs: 1_000,
+    };
+
+    await expect(checkRateLimit(options)).resolves.toMatchObject({ allowed: true, available: true });
+    await expect(checkRateLimit(options)).resolves.toMatchObject({ allowed: false, available: true });
+  });
+
+  it("fails closed in production when the configured store is unreachable", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RATE_LIMIT_HASH_SECRET", "independent-rate-limit-secret");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://redis.example.com/");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "test-token");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("connection refused")));
+
+    await expect(checkRateLimit({
+      identifier: "203.0.113.13",
+      limit: 1,
+      namespace: `unreachable-${randomUUID()}`,
       windowMs: 1_000,
     })).resolves.toMatchObject({ allowed: false, available: false });
   });

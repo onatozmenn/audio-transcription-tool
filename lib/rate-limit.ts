@@ -15,6 +15,7 @@ export type RateLimitResult = {
 };
 
 const LOCAL_RATE_LIMIT_STORE = new Map<string, { count: number; expiresAt: number }>();
+let warnedAboutMissingStore = false;
 const REDIS_SCRIPT = [
   "local count = redis.call('INCR', KEYS[1])",
   "if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end",
@@ -68,10 +69,6 @@ function unavailableRateLimit(): RateLimitResult {
 }
 
 export async function checkRateLimit(options: RateLimitOptions): Promise<RateLimitResult> {
-  if (process.env.NODE_ENV === "production" && !process.env.RATE_LIMIT_HASH_SECRET) {
-    return unavailableRateLimit();
-  }
-
   const identifierHash = hashIdentifier(options.identifier);
   const key = `audio-transcription:${options.namespace}:${identifierHash}`;
   const redisUrl = (
@@ -79,10 +76,21 @@ export async function checkRateLimit(options: RateLimitOptions): Promise<RateLim
   )?.replace(/\/$/, "");
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
 
+  // No shared store configured. Degrade to the in-process limiter instead of
+  // rejecting every request: a missing store is a deployment choice, and
+  // failing closed here takes the whole cloud transcription path offline.
+  // Per-instance counters are weaker than distributed ones, but they still
+  // throttle the abusive bursts this guard exists to stop.
   if (!redisUrl || !redisToken) {
-    return process.env.NODE_ENV === "production"
-      ? unavailableRateLimit()
-      : localRateLimit(options, key);
+    if (process.env.NODE_ENV === "production" && !warnedAboutMissingStore) {
+      warnedAboutMissingStore = true;
+      console.warn(
+        "Rate limiting is running per-instance: set UPSTASH_REDIS_REST_URL/TOKEN " +
+        "(or KV_REST_API_URL/TOKEN) to enable distributed limits.",
+      );
+    }
+
+    return localRateLimit(options, key);
   }
 
   try {
