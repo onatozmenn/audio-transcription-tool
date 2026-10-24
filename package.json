@@ -39,11 +39,16 @@
   "pnpm": {
     "overrides": {
       "onnxruntime-node>tar": "7.5.22",
-      "onnxruntime-web>protobufjs": "7.6.3",
+      "onnxruntime-web>protobufjs": "7.6.6",
       "@tailwindcss/postcss>postcss": "8.5.31",
       "jspdf>dompurify": "3.4.17",
       "next>postcss": "8.5.31",
-      "@huggingface/transformers>sharp": "0.35.5"
+      "@huggingface/transformers>sharp": "0.35.5",
+      "@vercel/blob>undici": "6.29.1",
+      "@vercel/cli-config>zod": "4.6.7",
+      "browserslist": "4.29.4",
+      "jspdf>fflate": "0.8.3",
+      "next>baseline-browser-mapping": "2.11.32"
     }
   }
 }
