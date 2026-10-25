@@ -9,10 +9,10 @@ export const metadata: Metadata = {
   title: "Privacy Policy - Audio Transcription",
   description: "How local and cloud audio transcription data is processed, protected, and deleted.",
   alternates: {
-    canonical: "https://audio-transcription.app/privacy",
+    canonical: "https://www.audio-transcription.app/privacy",
     languages: {
-      en: "https://audio-transcription.app/privacy",
-      tr: "https://audio-transcription.app/tr/privacy",
+      en: "https://www.audio-transcription.app/privacy",
+      tr: "https://www.audio-transcription.app/tr/privacy",
     },
   },
 };

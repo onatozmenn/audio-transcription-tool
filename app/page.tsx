@@ -176,7 +176,7 @@ const MAX_LOCAL_AUDIO_SECONDS = 2 * 60 * 60;
 const MAX_CLOUD_REQUEST_RETRIES = 6;
 const CLOUD_RETRY_BASE_DELAY_MS = 1_500;
 const MAX_CLOUD_RETRY_DELAY_MS = 20_000;
-const APP_URL = "https://audio-transcription.app";
+const APP_URL = "https://www.audio-transcription.app";
 const APP_URL_TR = `${APP_URL}/tr`;
 
 const FAQ_JSON_LD_EN = {

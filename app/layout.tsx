@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
 import "flag-icons/css/flag-icons.min.css";
 import "./globals.css";
 
-const CANONICAL_URL = "https://audio-transcription.app";
+const CANONICAL_URL = "https://www.audio-transcription.app";
 const TR_URL = `${CANONICAL_URL}/tr`;
 const SOCIAL_IMAGE_PATH = "/opengraph-image";
 const APP_NAME = "Free Audio Transcription Tool";
@@ -167,16 +166,15 @@ const webSiteJsonLd = {
   },
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const requestHeaders = await headers();
-  const language = requestHeaders.get("x-app-locale") === "tr" ? "tr" : "en";
-
+  // The root layout stays static so pages can be served from the CDN.
+  // /tr switches <html lang> in app/tr/layout.tsx.
   return (
-    <html lang={language} className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <script
           type="application/ld+json"

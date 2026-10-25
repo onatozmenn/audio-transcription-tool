@@ -7,6 +7,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: "/private/",
     },
-    sitemap: "https://audio-transcription.app/sitemap.xml",
+    sitemap: "https://www.audio-transcription.app/sitemap.xml",
   };
 }

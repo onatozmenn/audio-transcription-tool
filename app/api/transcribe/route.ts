@@ -14,6 +14,7 @@ import {
 import {
   assertChunkPathname,
   getTranscriptionSessionToken,
+  TRANSCRIPTION_SESSION_TTL_MS,
   verifyTranscriptionSessionToken,
 } from "@/lib/transcription-session";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -74,7 +75,14 @@ function getRequestIp(req: Request): string {
 type GroqSegment = { text: string; start: number; end: number };
 type GroqResponse = { text?: string; segments?: GroqSegment[] };
 type BlobTranscriptionRequest = { blobUrl?: string; language?: string };
-type GroqRequest = { audioBytes: number; cleanupBlobUrl: string | null; formData: FormData };
+type GroqRequest = {
+  audioBytes: number;
+  cleanupBlobUrl: string | null;
+  formData: FormData;
+  sessionToken: string;
+};
+
+const MAX_TRANSCRIBE_CALLS_PER_CHUNK_TOKEN = 24;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MB = 1024 * 1024;
@@ -160,7 +168,12 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
       groqFormData.append("language", LANGUAGE_CODES[language]);
     }
 
-    return { audioBytes: blobMeta.size, cleanupBlobUrl: blobMeta.url, formData: groqFormData };
+    return {
+      audioBytes: blobMeta.size,
+      cleanupBlobUrl: blobMeta.url,
+      formData: groqFormData,
+      sessionToken,
+    };
   }
 
   const formData = await req.formData();
@@ -168,7 +181,7 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
   const languageEntry = formData.get("language");
 
   const sessionToken = getTranscriptionSessionToken(req);
-  if (!verifyTranscriptionSessionToken(sessionToken)) {
+  if (!sessionToken || !verifyTranscriptionSessionToken(sessionToken)) {
     return jsonError(`Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`, 401);
   }
 
@@ -202,7 +215,7 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
     groqFormData.append("language", LANGUAGE_CODES[language]);
   }
 
-  return { audioBytes: fileEntry.size, cleanupBlobUrl: null, formData: groqFormData };
+  return { audioBytes: fileEntry.size, cleanupBlobUrl: null, formData: groqFormData, sessionToken };
 }
 
 async function enforceDailyAudioBudget(
@@ -276,7 +289,23 @@ export async function POST(req: Request) {
       return groqRequest;
     }
 
-    const quotaResponse = await enforceDailyAudioBudget(ip, groqRequest.audioBytes);
+    // A chunk token is valid for hours; cap how often it can be replayed.
+    // The cap leaves room for client retries and the Safari WAV fallback.
+    const tokenUses = await checkRateLimit({
+      identifier: groqRequest.sessionToken,
+      limit: MAX_TRANSCRIBE_CALLS_PER_CHUNK_TOKEN,
+      namespace: "chunk-token-uses",
+      windowMs: TRANSCRIPTION_SESSION_TTL_MS,
+    });
+    const quotaResponse = !tokenUses.available
+      ? jsonError("Rate limit service is temporarily unavailable.", 503, {
+          "Retry-After": String(tokenUses.retryAfterSeconds),
+        })
+      : !tokenUses.allowed
+        ? jsonError("This upload session has been used too many times. Please start again.", 429, {
+            "X-Audio-Quota": "chunk-token-uses",
+          })
+        : await enforceDailyAudioBudget(ip, groqRequest.audioBytes);
     if (quotaResponse) {
       if (groqRequest.cleanupBlobUrl) {
         await del(groqRequest.cleanupBlobUrl).catch((cleanupError) => {
@@ -297,15 +326,18 @@ export async function POST(req: Request) {
     });
 
     if (!response.ok) {
+      // Log Groq's own message server-side; never pass it to the browser.
       const errorData = await response.json().catch(() => ({}));
-      const errorMessage =
-        errorData?.error?.message || "Failed to transcribe audio on Groq.";
+      console.error("Groq rejected transcription:", response.status, errorData?.error?.message);
       const retryAfter = response.headers.get("retry-after");
-      return jsonError(
-        errorMessage,
-        response.status,
-        retryAfter ? { "Retry-After": retryAfter } : {},
-      );
+      const status = response.status >= 500 ? 502 : response.status;
+      const message =
+        response.status === 429
+          ? "Cloud transcription is busy. Please try again shortly."
+          : response.status >= 500
+            ? "Cloud transcription service is unavailable. Please try again."
+            : "Cloud transcription could not process this audio.";
+      return jsonError(message, status, retryAfter ? { "Retry-After": retryAfter } : {});
     }
 
     let data: GroqResponse;

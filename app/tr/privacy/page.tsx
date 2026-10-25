@@ -9,10 +9,10 @@ export const metadata: Metadata = {
   title: { absolute: "Gizlilik Politikası - Ses Transkripsiyonu" },
   description: "Yerel ve bulut transkripsiyonunda verilerin nasıl işlendiği, korunduğu ve silindiği.",
   alternates: {
-    canonical: "https://audio-transcription.app/tr/privacy",
+    canonical: "https://www.audio-transcription.app/tr/privacy",
     languages: {
-      en: "https://audio-transcription.app/privacy",
-      tr: "https://audio-transcription.app/tr/privacy",
+      en: "https://www.audio-transcription.app/privacy",
+      tr: "https://www.audio-transcription.app/tr/privacy",
     },
   },
 };

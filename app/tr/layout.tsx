@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import HtmlLang from "@/components/html-lang";
 
-const BASE_URL = "https://audio-transcription.app";
+const BASE_URL = "https://www.audio-transcription.app";
 const TR_URL = `${BASE_URL}/tr`;
 const SOCIAL_IMAGE_PATH = "/opengraph-image";
 
@@ -58,5 +59,13 @@ export const metadata: Metadata = {
 export default function TurkishLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return <>{children}</>;
+  return (
+    <>
+      <script
+        dangerouslySetInnerHTML={{ __html: 'document.documentElement.lang="tr";' }}
+      />
+      <HtmlLang lang="tr" />
+      {children}
+    </>
+  );
 }
