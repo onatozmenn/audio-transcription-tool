@@ -6,9 +6,9 @@ const CANONICAL_URL = "https://www.audio-transcription.app";
 const TR_URL = `${CANONICAL_URL}/tr`;
 const SOCIAL_IMAGE_PATH = "/opengraph-image";
 const APP_NAME = "Free Audio Transcription Tool";
-const SEO_TITLE = "Free Audio Transcription Tool - Speech to Text Online (No Sign-up)";
+const SEO_TITLE = "Transcribe Audio to Text Free Online - No Sign-up";
 const SEO_DESCRIPTION =
-  "Convert audio to text online for free with Whisper & Moonshine AI. Transcribe MP3, WAV, M4A, MP4, OGG and more. Desktop runs locally (Moonshine for English, Whisper for other languages); mobile uses secure cloud transcription.";
+  "Transcribe audio to text free online, no sign-up. On desktop, Whisper AI runs in your browser, so your files are never uploaded. Works with MP3, WAV, M4A, MP4 and more.";
 const SEO_KEYWORDS = [
   "free audio transcription tool",
   "audio transcription online",
