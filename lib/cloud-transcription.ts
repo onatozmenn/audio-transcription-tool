@@ -64,6 +64,8 @@ export function isAllowedOrigin(req: Request): boolean {
     process.env.APP_URL,
     process.env.NEXT_PUBLIC_SITE_URL,
     process.env.VERCEL_URL,
+    // Branch alias (…-git-<branch>-….vercel.app) used when opening a preview.
+    process.env.VERCEL_BRANCH_URL,
     process.env.VERCEL_PROJECT_PRODUCTION_URL,
   ];
   for (const envUrl of envUrls) {
