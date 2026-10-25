@@ -111,6 +111,46 @@ export function isOpusOggEncodingSupported(): boolean {
 }
 
 /**
+ * Stronger check than `isOpusOggEncodingSupported()`: asks WebCodecs whether
+ * the exact mono 16 kHz Opus config is supported, then encodes half a second
+ * of silence to prove the encoder actually produces packets. Used to gate
+ * Opus on iPhone Safari, where WebCodecs support has been unreliable.
+ */
+export async function probeOpusOggEncoding(
+  sampleRate = 16_000,
+  bitrate = 16_000,
+): Promise<boolean> {
+  if (!isOpusOggEncodingSupported()) return false;
+
+  const EncoderCtor = (globalThis as unknown as { AudioEncoder: typeof AudioEncoder }).AudioEncoder;
+  try {
+    if (typeof EncoderCtor.isConfigSupported === "function") {
+      const support = await EncoderCtor.isConfigSupported({
+        codec: "opus",
+        sampleRate,
+        numberOfChannels: 1,
+        bitrate,
+      });
+      if (!support.supported) return false;
+    }
+
+    const probe = encodeFloat32ToOpusOgg(
+      new Float32Array(Math.round(sampleRate / 2)),
+      sampleRate,
+      bitrate,
+    );
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), 3_000);
+    });
+    const blob = await Promise.race([probe, timeout]);
+    // Ogg headers alone are ~100 bytes; real audio pages push it past that.
+    return blob !== null && blob.size > 100;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Encode a mono Float32 PCM buffer to an Ogg/Opus Blob.
  * Caller must ensure `sampleRate` is one of {8000,12000,16000,24000,48000}.
  */

@@ -20,6 +20,7 @@ import {
 } from "@/lib/cloud-transcription";
 import {
   encodeFloat32ToOpusOgg,
+  probeOpusOggEncoding,
   isOpusOggEncodingSupported,
 } from "@/lib/opus-encoder";
 import { APP_COPY, type AppLocale } from "@/lib/app-copy";
@@ -1472,8 +1473,11 @@ export default function Home() {
           let sourceSamplesPerChunk = 0;
           let targetSamplesPerChunk = 0;
           const useSafariDirectTranscribe = preferFetchBlobUpload;
-          const useOpusEncoding =
-            isOpusOggEncodingSupported() && !useSafariDirectTranscribe;
+          // iPhone Safari only gets Opus when a real probe encode succeeds;
+          // otherwise it keeps the proven 90s PCM WAV path.
+          const useOpusEncoding = useSafariDirectTranscribe
+            ? await probeOpusOggEncoding(TARGET_SAMPLE_RATE)
+            : isOpusOggEncodingSupported();
           const canAttemptSingleBlobUpload = useSafariDirectTranscribe
             ? file.size <= MAX_SAFE_FORMDATA_UPLOAD_BYTES
             : file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES;
@@ -1579,16 +1583,60 @@ export default function Home() {
               throw new Error(copy.errors.sessionGrantMissing);
             }
 
+
+            // WAV pieces must stay under the ~4 MB FormData body limit, so an
+            // Opus chunk that has to fall back is re-sent as 90s WAV pieces.
+            const pcmPieceSamples =
+              IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S * TARGET_SAMPLE_RATE;
+            const encodeWavPieces = (
+              chunkData: Float32Array,
+              baseOffsetS: number,
+            ): Array<{ blob: Blob; fileName: string; offsetS: number }> => {
+              const pieces: Array<{ blob: Blob; fileName: string; offsetS: number }> = [];
+              for (let start = 0; start < chunkData.length; start += pcmPieceSamples) {
+                pieces.push({
+                  blob: encodeWAV(
+                    chunkData.subarray(start, Math.min(start + pcmPieceSamples, chunkData.length)),
+                    TARGET_SAMPLE_RATE,
+                  ),
+                  fileName: "chunk.wav",
+                  offsetS: baseOffsetS + start / TARGET_SAMPLE_RATE,
+                });
+              }
+              return pieces;
+            };
+            const isOpusRejectedError = (error: unknown): boolean =>
+              error instanceof Error &&
+              (error.message === copy.errors.cloudRequestFailed(400) ||
+                error.message === copy.errors.cloudRequestFailed(415) ||
+                error.message === copy.errors.cloudRequestFailed(422));
+            let opusEnabled = useOpusEncoding;
+
             let combinedText = "";
             const combinedSegments: TranscriptSegment[] = [];
+
+            const appendResult = (result: CloudTranscribeResponse, offsetS: number) => {
+              combinedText += (combinedText ? " " : "") + (result.text || "").trim();
+              if (Array.isArray(result.segments)) {
+                for (const seg of result.segments) {
+                  combinedSegments.push({
+                    text: seg.text,
+                    start: seg.start + offsetS,
+                    end: seg.end + offsetS,
+                  });
+                }
+              }
+            };
 
             for (let i = 0; i < totalCloudChunks; i++) {
               if (abortControllerRef.current?.signal.aborted) break;
 
               const isChunkedUpload = decodedAudioBuffer !== null;
-              let uploadBlob = file as Blob;
-              let offsetS = 0;
-              let uploadFileName = file.name;
+              let chunkPcm: Float32Array | null = null;
+              let chunkOffsetS = 0;
+              let pieces: Array<{ blob: Blob; fileName: string; offsetS: number }> = [
+                { blob: file, fileName: file.name, offsetS: 0 },
+              ];
 
               if (isChunkedUpload && decodedAudioBuffer) {
                 const chunkStartSample = i * sourceSamplesPerChunk;
@@ -1611,28 +1659,22 @@ export default function Home() {
                 if (chunkData.length > targetSamplesPerChunk) {
                   chunkData = chunkData.slice(0, targetSamplesPerChunk);
                 }
+                chunkPcm = chunkData;
+                chunkOffsetS = chunkStartSample / sourceSampleRate;
 
-                if (useOpusEncoding) {
+                pieces = encodeWavPieces(chunkData, chunkOffsetS);
+                if (opusEnabled) {
                   try {
-                    uploadBlob = await encodeFloat32ToOpusOgg(
-                      chunkData,
-                      TARGET_SAMPLE_RATE,
-                    );
-                    uploadFileName = "chunk.ogg";
+                    pieces = [{
+                      blob: await encodeFloat32ToOpusOgg(chunkData, TARGET_SAMPLE_RATE),
+                      fileName: "chunk.ogg",
+                      offsetS: chunkOffsetS,
+                    }];
                   } catch (opusError) {
-                    console.warn(
-                      "Opus encoding failed, falling back to WAV:",
-                      opusError,
-                    );
-                    uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
-                    uploadFileName = "chunk.wav";
+                    console.warn("Opus encoding failed, falling back to WAV:", opusError);
+                    opusEnabled = false;
                   }
-                } else {
-                  uploadBlob = encodeWAV(chunkData, TARGET_SAMPLE_RATE);
-                  uploadFileName = "chunk.wav";
                 }
-
-                offsetS = chunkStartSample / sourceSampleRate;
               }
 
               setLoadingDetail(
@@ -1647,31 +1689,46 @@ export default function Home() {
               });
 
               if (requestId !== activeRequestIdRef.current) return;
-              const result = await transcribeDirectFormDataBlob(
-                uploadBlob,
-                i,
-                totalCloudChunks,
-                uploadFileName,
-                directSession.grants[i].token,
-              );
+              for (const piece of pieces) {
+                let result: CloudTranscribeResponse;
+                try {
+                  result = await transcribeDirectFormDataBlob(
+                    piece.blob,
+                    i,
+                    totalCloudChunks,
+                    piece.fileName,
+                    directSession.grants[i].token,
+                  );
+                } catch (pieceError) {
+                  // Groq could not decode Safari's Opus output: switch to WAV
+                  // for this and every later chunk instead of failing the job.
+                  if (piece.fileName === "chunk.ogg" && chunkPcm && isOpusRejectedError(pieceError)) {
+                    console.warn("Opus chunk rejected, re-sending as WAV:", pieceError);
+                    opusEnabled = false;
+                    for (const wavPiece of encodeWavPieces(chunkPcm, chunkOffsetS)) {
+                      appendResult(
+                        await transcribeDirectFormDataBlob(
+                          wavPiece.blob,
+                          i,
+                          totalCloudChunks,
+                          wavPiece.fileName,
+                          directSession.grants[i].token,
+                        ),
+                        wavPiece.offsetS,
+                      );
+                    }
+                    continue;
+                  }
+                  throw pieceError;
+                }
+                appendResult(result, piece.offsetS);
+              }
 
               setProcessedChunks(i + 1);
               setProgress((prev) => {
                 const next = ((i + 1) / totalCloudChunks) * 100;
                 return next > prev ? next : prev;
               });
-
-              combinedText += (combinedText ? " " : "") + (result.text || "").trim();
-
-              if (Array.isArray(result.segments)) {
-                for (const seg of result.segments) {
-                  combinedSegments.push({
-                    text: seg.text,
-                    start: seg.start + offsetS,
-                    end: seg.end + offsetS,
-                  });
-                }
-              }
             }
 
             if (abortControllerRef.current?.signal.aborted) return;
