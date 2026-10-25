@@ -25,13 +25,13 @@ const facts: PrivacyFact[] = [
   },
   {
     label: "Mobile",
-    steps: ["Device", "Temporary Blob", "Groq", "Deletion"],
+    steps: ["Device", "Temporary upload", "Groq", "Deletion"],
     note: "Successful files are deleted immediately; abandoned files are removed by scheduled cleanup.",
   },
   {
     label: "Service protection",
     steps: ["BotID", "Keyed HMAC counter", "Expiry"],
-    note: "The application does not store raw IP addresses. Rate-limit counters live for at most 30 minutes.",
+    note: "The application does not store raw IP addresses. Rate-limit and daily usage counters live for at most 24 hours.",
   },
 ];
 
@@ -49,7 +49,7 @@ const sections: PrivacySection[] = [
             <strong>On desktop:</strong> Transcription happens entirely inside your browser using Whisper Small or Moonshine AI models. No audio, text, or personal information is sent to a server.
           </li>
           <li>
-            <strong>On mobile:</strong> Audio is uploaded to temporary Vercel Blob storage, transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer">Groq Cloud</a> using Whisper Large V3, and deleted after processing.
+            <strong>On mobile:</strong> Audio is sent to temporary cloud processing (Vercel Blob storage, or directly through our server on iPhone Safari), transcribed by <a href="https://groq.com" target="_blank" rel="noopener noreferrer">Groq Cloud</a> using Whisper Large V3, and deleted after processing.
           </li>
         </ul>
       </>
@@ -61,10 +61,10 @@ const sections: PrivacySection[] = [
     body: (
       <>
         <p>
-          <strong>Desktop:</strong> Audio is decoded and processed entirely within your browser. English audio uses the Moonshine Base model; other languages use the Whisper Small model. Both run through WebGPU with a WASM fallback. The model is downloaded once from Hugging Face and cached in your browser. After that, transcription can work offline.
+          <strong>Desktop:</strong> Audio is decoded and processed entirely within your browser. English audio uses the Moonshine Base model; other languages use the Whisper Small model. Both run through WebGPU with a WASM fallback. The model files are downloaded once from Hugging Face and cached in your browser. After that, transcription can work offline.
         </p>
         <p>
-          <strong>Mobile:</strong> Audio is chunked and uploaded directly from your device into a temporary Vercel Blob object. The server gives Groq time-limited access for transcription. Successful jobs are deleted immediately. Failed or abandoned uploads are removed by scheduled cleanup after the four-hour session lifetime plus a one-hour grace period.
+          <strong>Mobile:</strong> Audio is split into chunks and compressed on your device. On most browsers each chunk is uploaded into a temporary Vercel Blob object under a random, unguessable address, and Groq fetches it from that address for transcription. On iPhone Safari, chunks are sent through our server straight to Groq without being stored. Successful chunks are deleted immediately. Failed or abandoned uploads are removed by a daily cleanup job once they are older than five hours, so they remain for at most about 29 hours.
         </p>
       </>
     ),
@@ -75,7 +75,7 @@ const sections: PrivacySection[] = [
     body: (
       <>
         <p>
-          Mobile API requests are checked by Vercel BotID and rate limited. The application converts the request IP address into a keyed HMAC value before placing it in the shared rate-limit store; the raw IP address is not stored by the application. Rate-limit entries expire after at most 30 minutes.
+          Mobile API requests are checked by Vercel BotID and rate limited. The application converts the request IP address into a keyed HMAC value before placing it in the shared rate-limit store; the raw IP address is not stored by the application. Short-term rate-limit entries expire within 30 minutes, and the daily cloud usage counter (the amount of audio processed, without any audio content) expires within 24 hours.
         </p>
         <p>
           Hosting and API providers may process standard network logs under their own privacy and retention policies. A separate random secret is used for transcription grants, and no rate-limit identifier is included in transcript output.
@@ -103,10 +103,10 @@ const sections: PrivacySection[] = [
     body: (
       <>
         <p>
-          AI model weights, approximately 50-150 MB depending on language, are cached in your browser&apos;s native cache after the first download. You can clear this cache at any time through your browser settings.
+          AI model files, approximately 250-410 MB depending on the model and your device, are cached in your browser&apos;s native cache after the first download. You can clear this cache at any time through your browser settings.
         </p>
         <p>
-          We use minimal <code>localStorage</code> flags to remember whether the model was previously loaded and skip redundant loading UI. We do not store audio, transcripts, personal data, or tracking identifiers in local storage.
+          We use a single <code>localStorage</code> flag to remember whether the model was previously loaded and skip redundant loading UI. We do not store audio, transcripts, personal data, or tracking identifiers in local storage.
         </p>
       </>
     ),
@@ -120,10 +120,10 @@ const sections: PrivacySection[] = [
           <strong>Hugging Face on desktop:</strong> Used only to download open-source AI model files on first use. The <a href="https://huggingface.co/privacy" target="_blank" rel="noopener noreferrer">Hugging Face Privacy Policy</a> applies.
         </li>
         <li>
-          <strong>Vercel Blob and Vercel BotID on mobile:</strong> Provide temporary storage and abuse prevention. Uploads are deleted after processing or by scheduled stale-file cleanup.
+          <strong>Vercel (hosting, Blob and BotID) on mobile:</strong> Provides hosting, temporary storage, and abuse prevention. Uploads are deleted after processing or by the daily stale-file cleanup.
         </li>
         <li>
-          <strong>Upstash Redis on mobile:</strong> Stores only keyed, pseudonymous rate-limit counters with a maximum 30-minute lifetime. Audio and transcripts are never stored there.
+          <strong>Upstash Redis on mobile:</strong> Stores only keyed, pseudonymous rate-limit and daily usage counters with a maximum 24-hour lifetime. Audio and transcripts are never stored there.
         </li>
         <li>
           <strong>Groq Cloud on mobile:</strong> Processes audio using Whisper Large V3. Groq&apos;s terms and retention policy apply while it processes the request. See the <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer">Groq Privacy Policy</a>.
@@ -136,7 +136,7 @@ const sections: PrivacySection[] = [
   },
   {
     id: "children",
-    title: "Children&apos;s Privacy",
+    title: "Children's Privacy",
     body: (
       <p>
         This service is not directed at children and does not knowingly create profiles about children. The same limited processing described above applies to every request.
@@ -157,7 +157,7 @@ const sections: PrivacySection[] = [
     title: "Contact",
     body: (
       <p>
-        Questions about this policy can be sent through <a href="https://www.linkedin.com/in/onat-ozmen" target="_blank" rel="noopener noreferrer">LinkedIn</a>.
+        Questions about this policy can be sent through <a href="https://www.linkedin.com/in/onat-ozmen" target="_blank" rel="noopener noreferrer">LinkedIn</a> or by opening an issue on <a href="https://github.com/onatozmenn/audio-transcription-tool/issues" target="_blank" rel="noopener noreferrer">GitHub</a>. The source code is open (MIT License), so you can verify how your data is handled.
       </p>
     ),
   },
@@ -183,7 +183,7 @@ export default function PrivacyPolicy() {
       sections={sections}
       summary="A direct account of what stays on your device, what leaves it during mobile processing, and when temporary files disappear."
       title="Privacy Policy"
-      updated="July 14, 2026"
+      updated="October 25, 2026"
     />
   );
 }

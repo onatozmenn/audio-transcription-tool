@@ -25,13 +25,13 @@ const facts: PrivacyFact[] = [
   },
   {
     label: "Mobil",
-    steps: ["Cihaz", "Geçici Blob", "Groq", "Silme"],
+    steps: ["Cihaz", "Geçici yükleme", "Groq", "Silme"],
     note: "Başarılı dosyalar hemen; yarım kalan dosyalar zamanlanmış temizlikle silinir.",
   },
   {
     label: "Hizmet koruması",
     steps: ["BotID", "HMAC sayaç", "Sona erme"],
-    note: "Ham IP saklanmaz. Hız sınırı sayaçları en fazla 30 dakika yaşar.",
+    note: "Ham IP saklanmaz. Hız sınırı ve günlük kullanım sayaçları en fazla 24 saat yaşar.",
   },
 ];
 
@@ -49,7 +49,7 @@ const sections: PrivacySection[] = [
             <strong>Masaüstünde:</strong> Ses, Whisper Small veya Moonshine ile tamamen tarayıcınızda işlenir. Ses ve transkript sunucuya gönderilmez.
           </li>
           <li>
-            <strong>Mobilde:</strong> Ses geçici Vercel Blob depolamasına yüklenir, Groq Cloud üzerindeki Whisper Large V3 ile işlenir ve ardından silinir.
+            <strong>Mobilde:</strong> Ses geçici bulut işlemeye gönderilir (Vercel Blob depolaması veya iPhone Safari&apos;de doğrudan sunucumuz üzerinden), Groq Cloud üzerindeki Whisper Large V3 ile işlenir ve ardından silinir.
           </li>
         </ul>
       </>
@@ -64,7 +64,7 @@ const sections: PrivacySection[] = [
           <strong>Masaüstü:</strong> Model ilk kullanımda Hugging Face üzerinden indirilip tarayıcı önbelleğine alınır. Sonraki işlemler internet bağlantısı olmadan çalışabilir.
         </p>
         <p>
-          <strong>Mobil:</strong> Ses mobil uyumlu parçalara ayrılabilir. Groq yalnızca süreli bir bağlantıyla geçici dosyaya erişir. Başarılı işlemlerde dosya hemen silinir. Yarım kalan veya başarısız yüklemeler, dört saatlik oturum süresi ve bir saatlik ek sürenin ardından günlük temizlik göreviyle kaldırılır.
+          <strong>Mobil:</strong> Ses cihazınızda parçalara ayrılır ve sıkıştırılır. Çoğu tarayıcıda her parça rastgele ve tahmin edilemeyen bir adresle geçici Vercel Blob depolamasına yüklenir; Groq dosyayı bu adresten alır. iPhone Safari&apos;de parçalar saklanmadan sunucumuz üzerinden doğrudan Groq&apos;a iletilir. Başarılı parçalar hemen silinir. Yarım kalan veya başarısız yüklemeler, beş saatten eski olduklarında günlük temizlik göreviyle kaldırılır; yani en fazla yaklaşık 29 saat kalır.
         </p>
       </>
     ),
@@ -75,7 +75,7 @@ const sections: PrivacySection[] = [
     body: (
       <>
         <p>
-          Mobil API istekleri Vercel BotID ile kontrol edilir ve hız sınırına tabidir. Uygulama, istek IP adresini paylaşımlı hız sınırı deposuna yazmadan önce anahtarlı HMAC değerine dönüştürür; ham IP adresi uygulama tarafından saklanmaz. Sayaçlar en fazla 30 dakika içinde silinir.
+          Mobil API istekleri Vercel BotID ile kontrol edilir ve hız sınırına tabidir. Uygulama, istek IP adresini paylaşımlı hız sınırı deposuna yazmadan önce anahtarlı HMAC değerine dönüştürür; ham IP adresi uygulama tarafından saklanmaz. Kısa süreli hız sınırı sayaçları 30 dakika içinde, günlük bulut kullanım sayacı (ses içeriği olmadan, yalnızca işlenen ses miktarı) 24 saat içinde silinir.
         </p>
         <p>
           Barındırma ve API sağlayıcıları standart ağ günlüklerini kendi gizlilik ve saklama politikalarına göre işleyebilir.
@@ -103,7 +103,7 @@ const sections: PrivacySection[] = [
     body: (
       <>
         <p>
-          Yapay zeka model dosyaları tarayıcı önbelleğinde tutulabilir. Tarayıcı ayarlarınızdan bu verileri silebilirsiniz.
+          Yapay zeka model dosyaları (modele ve cihaza göre yaklaşık 250-410 MB) ilk indirmeden sonra tarayıcı önbelleğinde tutulur. Tarayıcı ayarlarınızdan bu verileri silebilirsiniz.
         </p>
         <p>
           <code>localStorage</code> içinde yalnızca modelin daha önce yüklenip yüklenmediğini belirten bir bayrak tutulur. Ses, transkript veya takip kimliği burada saklanmaz.
@@ -117,8 +117,8 @@ const sections: PrivacySection[] = [
     body: (
       <ul>
         <li><strong>Hugging Face:</strong> Masaüstü model dosyalarının ilk indirmesi.</li>
-        <li><strong>Vercel Blob ve BotID:</strong> Mobil geçici depolama ve kötüye kullanım önleme.</li>
-        <li><strong>Upstash Redis:</strong> En fazla 30 dakika yaşayan, anahtarlı anonim hız sınırı sayaçları. Ses veya transkript içermez.</li>
+        <li><strong>Vercel (barındırma, Blob ve BotID):</strong> Barındırma, mobil geçici depolama ve kötüye kullanım önleme.</li>
+        <li><strong>Upstash Redis:</strong> En fazla 24 saat yaşayan, anahtarlı takma adlı hız sınırı ve günlük kullanım sayaçları. Ses veya transkript içermez.</li>
         <li>
           <strong>Groq Cloud:</strong> Mobil sesi Whisper Large V3 ile işler. İşlem sırasında <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer">Groq Gizlilik Politikası</a> geçerlidir.
         </li>
@@ -139,7 +139,7 @@ const sections: PrivacySection[] = [
     title: "İletişim ve Değişiklikler",
     body: (
       <p>
-        Politika değişirse yeni tarih bu sayfada yayımlanır. Sorularınız için <a href="https://www.linkedin.com/in/onat-ozmen" target="_blank" rel="noopener noreferrer">LinkedIn</a> üzerinden iletişime geçebilirsiniz.
+        Politika değişirse yeni tarih bu sayfada yayımlanır. Sorularınız için <a href="https://www.linkedin.com/in/onat-ozmen" target="_blank" rel="noopener noreferrer">LinkedIn</a> üzerinden iletişime geçebilir veya <a href="https://github.com/onatozmenn/audio-transcription-tool/issues" target="_blank" rel="noopener noreferrer">GitHub</a>&apos;da issue açabilirsiniz. Kaynak kodu açıktır (MIT Lisansı); verinizin nasıl işlendiğini kendiniz doğrulayabilirsiniz.
       </p>
     ),
   },
@@ -165,7 +165,7 @@ export default function TurkishPrivacyPolicy() {
       sections={sections}
       summary="Sesinizin ne zaman cihazınızda kaldığını, mobil işlem sırasında nereye gittiğini ve geçici dosyaların ne zaman silindiğini açıkça anlatır."
       title="Gizlilik Politikası"
-      updated="14 Temmuz 2026"
+      updated="25 Ekim 2026"
     />
   );
 }
