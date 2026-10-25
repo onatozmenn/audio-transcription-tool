@@ -157,7 +157,7 @@ const sections: PrivacySection[] = [
     title: "Contact",
     body: (
       <p>
-        Questions about this policy can be sent through <a href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250" target="_blank" rel="noopener noreferrer">LinkedIn</a>.
+        Questions about this policy can be sent through <a href="https://www.linkedin.com/in/onat-ozmen" target="_blank" rel="noopener noreferrer">LinkedIn</a>.
       </p>
     ),
   },

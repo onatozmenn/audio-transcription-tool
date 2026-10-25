@@ -65,6 +65,7 @@ export type AppCopy = {
   continueWithAiDescription: string;
   opensInNewTab: (service: string) => string;
   developedBy: string;
+  openSource: string;
   privacyPolicy: string;
   documentTitle: string;
   documentTitleDescription: string;
@@ -202,6 +203,7 @@ const EN_COPY: AppCopy = {
   continueWithAiDescription: "Open your transcript in an AI chat. It is copied to your clipboard automatically.",
   opensInNewTab: (service) => `Open transcript in ${service} (opens in a new tab)`,
   developedBy: "Developed by",
+  openSource: "Open source on GitHub",
   privacyPolicy: "Privacy Policy",
   documentTitle: "Document title",
   documentTitleDescription: "Add a title for your document, or leave it blank to skip.",
@@ -339,6 +341,7 @@ const TR_COPY: AppCopy = {
   continueWithAiDescription: "Transkripti bir yapay zeka sohbetinde açın. Metin otomatik olarak panoya kopyalanır.",
   opensInNewTab: (service) => `Transkripti ${service} içinde aç (yeni sekmede açılır)`,
   developedBy: "Geliştiren",
+  openSource: "GitHub'da açık kaynak",
   privacyPolicy: "Gizlilik Politikası",
   documentTitle: "Doküman başlığı",
   documentTitleDescription: "Dokümanınıza başlık ekleyin veya başlıksız indirmek için boş bırakın.",

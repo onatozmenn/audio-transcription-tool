@@ -2980,12 +2980,21 @@ export default function Home() {
               {copy.privacyPolicy}
             </a>
             <a
-              href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
+              href="https://www.linkedin.com/in/onat-ozmen"
               target="_blank"
               rel="noopener noreferrer"
               className="text-neutral-400 transition-colors hover:text-neutral-200"
             >
               LinkedIn <span aria-hidden="true">↗</span>
+            </a>
+            <a
+              href="https://github.com/onatozmenn/audio-transcription-tool"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="MIT License"
+              className="text-neutral-400 transition-colors hover:text-neutral-200"
+            >
+              {copy.openSource} <span aria-hidden="true">↗</span>
             </a>
           </div>
         </footer>

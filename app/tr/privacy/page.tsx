@@ -139,7 +139,7 @@ const sections: PrivacySection[] = [
     title: "İletişim ve Değişiklikler",
     body: (
       <p>
-        Politika değişirse yeni tarih bu sayfada yayımlanır. Sorularınız için <a href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250" target="_blank" rel="noopener noreferrer">LinkedIn</a> üzerinden iletişime geçebilirsiniz.
+        Politika değişirse yeni tarih bu sayfada yayımlanır. Sorularınız için <a href="https://www.linkedin.com/in/onat-ozmen" target="_blank" rel="noopener noreferrer">LinkedIn</a> üzerinden iletişime geçebilirsiniz.
       </p>
     ),
   },
