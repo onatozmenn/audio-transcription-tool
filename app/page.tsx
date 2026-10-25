@@ -1319,6 +1319,12 @@ export default function Home() {
                   return (await response.json()) as CloudTranscribeResponse;
                 }
 
+                // Daily audio budget is exhausted; retrying only burns more
+                // transfer and the server already deleted the uploaded blob.
+                if (response.status === 429 && response.headers.get("x-audio-quota")) {
+                  throw new Error(copy.errors.dailyQuotaReached);
+                }
+
                 const hasAttemptsLeft = attempt < maxAttempts;
                 const shouldRetry = response.status === 429 || response.status >= 500;
 
@@ -1421,6 +1427,10 @@ export default function Home() {
 
               if (response.ok) {
                 return (await response.json()) as CloudTranscribeResponse;
+              }
+
+              if (response.status === 429 && response.headers.get("x-audio-quota")) {
+                throw new Error(copy.errors.dailyQuotaReached);
               }
 
               const hasAttemptsLeft = attempt < maxAttempts;
@@ -1810,6 +1820,7 @@ export default function Home() {
             copy.errors.cloudRequestFailed(400),
             copy.errors.cloudTranscriptionFailed,
             copy.errors.cloudUploadFailed,
+            copy.errors.dailyQuotaReached,
             copy.errors.mobileTooLarge,
             copy.errors.mobileTooLong,
             copy.errors.sessionGrantMissing,

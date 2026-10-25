@@ -117,7 +117,9 @@ export function isOpusOggEncodingSupported(): boolean {
 export async function encodeFloat32ToOpusOgg(
   samples: Float32Array,
   sampleRate: number,
-  bitrate = 24_000,
+  // 16 kbps is plenty for speech recognition and ~33% smaller than 24 kbps,
+  // which directly cuts Vercel Fast Origin Transfer for cloud uploads.
+  bitrate = 16_000,
 ): Promise<Blob> {
   if (!isOpusOggEncodingSupported()) {
     throw new Error("WebCodecs Opus encoding is not supported in this browser.");

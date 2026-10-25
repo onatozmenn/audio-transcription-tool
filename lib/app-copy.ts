@@ -100,6 +100,7 @@ export type AppCopy = {
     cloudUploadFailed: string;
     cloudTranscriptionFailed: string;
     cloudRequestFailed: (status: number) => string;
+    dailyQuotaReached: string;
     mobileTooLong: string;
     mobileTooLarge: string;
     localTooLong: string;
@@ -236,6 +237,7 @@ const EN_COPY: AppCopy = {
     cloudUploadFailed: "Cloud upload failed after multiple retries.",
     cloudTranscriptionFailed: "Cloud transcription failed. Please try again.",
     cloudRequestFailed: (status) => `Cloud transcription failed (HTTP ${status}).`,
+    dailyQuotaReached: "The daily mobile transcription limit has been reached. Try again tomorrow or use desktop transcription.",
     mobileTooLong: "This recording is longer than 2 hours on mobile. Split it into parts or use desktop.",
     mobileTooLarge: "This file is too large for mobile browser processing. Use desktop or compress the recording.",
     localTooLong: "This recording is longer than 2 hours. Split it into smaller parts.",
@@ -372,6 +374,7 @@ const TR_COPY: AppCopy = {
     cloudUploadFailed: "Birden fazla denemeden sonra bulut yüklemesi başarısız oldu.",
     cloudTranscriptionFailed: "Bulut transkripsiyonu başarısız oldu. Lütfen yeniden deneyin.",
     cloudRequestFailed: (status) => `Bulut transkripsiyonu başarısız oldu (HTTP ${status}).`,
+    dailyQuotaReached: "Günlük mobil transkripsiyon limitine ulaşıldı. Yarın tekrar deneyin veya masaüstünde transkripsiyon yapın.",
     mobileTooLong: "Bu kayıt mobil kullanım için 2 saatten uzun. Parçalara ayırın veya masaüstü kullanın.",
     mobileTooLarge: "Bu dosya mobil tarayıcıda işlenemeyecek kadar büyük. Masaüstü kullanın veya kaydı sıkıştırın.",
     localTooLong: "Bu kayıt 2 saatten uzun. Daha küçük parçalara ayırın.",

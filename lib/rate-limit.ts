@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 
 type RateLimitOptions = {
+  /** How much to add to the counter (defaults to 1). Use for byte budgets. */
+  amount?: number;
   identifier: string;
   limit: number;
   namespace: string;
@@ -17,8 +19,8 @@ export type RateLimitResult = {
 const LOCAL_RATE_LIMIT_STORE = new Map<string, { count: number; expiresAt: number }>();
 let warnedAboutMissingStore = false;
 const REDIS_SCRIPT = [
-  "local count = redis.call('INCR', KEYS[1])",
-  "if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end",
+  "local count = redis.call('INCRBY', KEYS[1], ARGV[2])",
+  "if count == tonumber(ARGV[2]) then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end",
   "local ttl = redis.call('PTTL', KEYS[1])",
   "return {count, ttl}",
 ].join("\n");
@@ -36,12 +38,18 @@ function hashIdentifier(identifier: string): string {
     .slice(0, 32);
 }
 
+function getAmount(options: RateLimitOptions): number {
+  const amount = options.amount ?? 1;
+  return Number.isFinite(amount) && amount > 0 ? Math.ceil(amount) : 1;
+}
+
 function localRateLimit(options: RateLimitOptions, key: string): RateLimitResult {
   const now = Date.now();
+  const amount = getAmount(options);
   const current = LOCAL_RATE_LIMIT_STORE.get(key);
   const state = !current || current.expiresAt <= now
-    ? { count: 1, expiresAt: now + options.windowMs }
-    : { ...current, count: current.count + 1 };
+    ? { count: amount, expiresAt: now + options.windowMs }
+    : { ...current, count: current.count + amount };
 
   LOCAL_RATE_LIMIT_STORE.set(key, state);
 
@@ -106,6 +114,7 @@ export async function checkRateLimit(options: RateLimitOptions): Promise<RateLim
         "1",
         key,
         String(options.windowMs),
+        String(getAmount(options)),
       ]),
       cache: "no-store",
       signal: AbortSignal.timeout(3_000),

@@ -74,7 +74,23 @@ function getRequestIp(req: Request): string {
 type GroqSegment = { text: string; start: number; end: number };
 type GroqResponse = { text?: string; segments?: GroqSegment[] };
 type BlobTranscriptionRequest = { blobUrl?: string; language?: string };
-type GroqRequest = { cleanupBlobUrl: string | null; formData: FormData };
+type GroqRequest = { audioBytes: number; cleanupBlobUrl: string | null; formData: FormData };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MB = 1024 * 1024;
+
+function readByteBudget(envName: string, fallbackMb: number): number {
+  const raw = Number(process.env[envName]);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw * MB) : fallbackMb * MB;
+}
+
+// Every byte of audio that reaches Groq passes through Vercel's origin
+// (FormData POST or a cache-MISS Blob download), so it counts toward Fast
+// Origin Transfer. Cap it per IP and globally per day so a single client or a
+// burst of abuse cannot exhaust the plan's transfer allowance.
+// Opus at 16 kbps is ~7 MB/hour; iPhone WAV is ~115 MB/hour.
+const DAILY_AUDIO_BYTES_PER_IP = readByteBudget("AUDIO_DAILY_MB_PER_IP", 150);
+const DAILY_AUDIO_BYTES_GLOBAL = readByteBudget("AUDIO_DAILY_MB_GLOBAL", 300);
 
 function buildInternalBlobStreamUrl(req: Request, pathname: string, sessionToken: string): string {
   const baseUrl = new URL(req.url);
@@ -144,7 +160,7 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
       groqFormData.append("language", LANGUAGE_CODES[language]);
     }
 
-    return { cleanupBlobUrl: blobMeta.url, formData: groqFormData };
+    return { audioBytes: blobMeta.size, cleanupBlobUrl: blobMeta.url, formData: groqFormData };
   }
 
   const formData = await req.formData();
@@ -186,7 +202,35 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
     groqFormData.append("language", LANGUAGE_CODES[language]);
   }
 
-  return { cleanupBlobUrl: null, formData: groqFormData };
+  return { audioBytes: fileEntry.size, cleanupBlobUrl: null, formData: groqFormData };
+}
+
+async function enforceDailyAudioBudget(
+  ip: string,
+  audioBytes: number,
+): Promise<NextResponse | null> {
+  const budgets = [
+    { identifier: ip, limit: DAILY_AUDIO_BYTES_PER_IP, namespace: "audio-bytes-ip" },
+    { identifier: "global", limit: DAILY_AUDIO_BYTES_GLOBAL, namespace: "audio-bytes-global" },
+  ];
+
+  for (const budget of budgets) {
+    const result = await checkRateLimit({ ...budget, amount: audioBytes, windowMs: DAY_MS });
+    if (!result.available) {
+      return jsonError("Rate limit service is temporarily unavailable.", 503, {
+        "Retry-After": String(result.retryAfterSeconds),
+      });
+    }
+    if (!result.allowed) {
+      return jsonError(
+        "Daily cloud transcription limit reached. Please try again later or use desktop transcription.",
+        429,
+        { "Retry-After": String(result.retryAfterSeconds), "X-Audio-Quota": budget.namespace },
+      );
+    }
+  }
+
+  return null;
 }
 
 export async function POST(req: Request) {
@@ -230,6 +274,16 @@ export async function POST(req: Request) {
     const groqRequest = await buildGroqFormData(req);
     if (groqRequest instanceof NextResponse) {
       return groqRequest;
+    }
+
+    const quotaResponse = await enforceDailyAudioBudget(ip, groqRequest.audioBytes);
+    if (quotaResponse) {
+      if (groqRequest.cleanupBlobUrl) {
+        await del(groqRequest.cleanupBlobUrl).catch((cleanupError) => {
+          console.error("Server-side Blob cleanup failed:", cleanupError);
+        });
+      }
+      return quotaResponse;
     }
 
     const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {

@@ -25,6 +25,22 @@ describe("rate limit", () => {
     expect(await checkRateLimit(options)).toMatchObject({ allowed: false, remaining: 0 });
   });
 
+  it("supports weighted increments for byte budgets", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    const options = {
+      identifier: randomUUID(),
+      limit: 100,
+      namespace: `bytes-${randomUUID()}`,
+      windowMs: 60_000,
+    };
+
+    expect(await checkRateLimit({ ...options, amount: 60 })).toMatchObject({ allowed: true, remaining: 40 });
+    expect(await checkRateLimit({ ...options, amount: 40 })).toMatchObject({ allowed: true, remaining: 0 });
+    expect(await checkRateLimit({ ...options, amount: 1 })).toMatchObject({ allowed: false });
+  });
+
   it("isolates counters by namespace", async () => {
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
