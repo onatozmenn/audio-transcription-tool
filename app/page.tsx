@@ -2,6 +2,7 @@
 
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
   Clock3,
   Copy,
@@ -23,7 +24,7 @@ import {
   probeOpusOggEncoding,
   isOpusOggEncodingSupported,
 } from "@/lib/opus-encoder";
-import { APP_COPY, type AppLocale } from "@/lib/app-copy";
+import { APP_COPY, type AppCopy, type AppLocale } from "@/lib/app-copy";
 
 type WhisperLanguage =
   | "english"
@@ -64,6 +65,18 @@ type TranscriptSegment = {
   end: number;
 };
 
+type TimeRange = {
+  start: number;
+  end: number;
+};
+
+type TranscriptionWarning = {
+  failedWindows: number;
+  totalWindows: number;
+  failedRanges: TimeRange[];
+  reason: string | null;
+};
+
 type TranscriptModel = "Xenova/whisper-small" | "onnx-community/moonshine-base-ONNX" | "openai/whisper-large-v3" | null;
 
 type TranscriptExportJson = {
@@ -74,6 +87,7 @@ type TranscriptExportJson = {
   language: "auto" | WhisperLanguage | null;
   text: string;
   segments: TranscriptSegment[];
+  warning?: TranscriptionWarning;
 };
 
 type CloudTranscribeResponse = {
@@ -109,8 +123,14 @@ type WorkerResponse =
     file?: string;
   }
   | { type: "partial"; text: string; requestId: number }
-  | { type: "segments"; requestId: number; text: string; segments: TranscriptSegment[] }
-  | { type: "result"; text: string; requestId: number }
+  | {
+    type: "segments";
+    requestId: number;
+    text: string;
+    segments: TranscriptSegment[];
+    warning?: TranscriptionWarning;
+  }
+  | { type: "result"; text: string; requestId: number; warning?: TranscriptionWarning }
   | { type: "error"; error: string; requestId?: number };
 
 const LANGUAGE_OPTIONS: LanguageOption[] = [
@@ -543,6 +563,32 @@ function formatSegmentTimestamp(seconds: number): string {
   return `${paddedMinutes}:${paddedSeconds}`;
 }
 
+function TranscriptWarningBanner({
+  copy,
+  warning,
+}: {
+  copy: AppCopy;
+  warning: TranscriptionWarning;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex items-start gap-2.5 border-b border-amber-300/10 bg-amber-400/[0.07] px-4 py-3 text-amber-100 sm:px-5"
+    >
+      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-300" />
+      <div className="min-w-0">
+        <p className="font-display text-xs font-semibold text-amber-100">
+          {copy.transcriptIncompleteTitle}
+        </p>
+        <p className="mt-0.5 text-xs leading-5 text-amber-200/80">
+          {copy.transcriptIncompleteWarning(warning.failedWindows, warning.totalWindows)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const pathname = usePathname();
   const locale: AppLocale = pathname === "/tr" || pathname.startsWith("/tr/") ? "tr" : "en";
@@ -574,6 +620,7 @@ export default function Home() {
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
   const [output, setOutput] = useState("");
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  const [transcriptionWarning, setTranscriptionWarning] = useState<TranscriptionWarning | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState<"auto" | WhisperLanguage | null>(null);
@@ -643,14 +690,18 @@ export default function Home() {
   // Flash "Transcription complete" badge only when transitioning transcribing → ready
   const prevStatusRef = useRef<typeof status | null>(null);
   useEffect(() => {
-    if (prevStatusRef.current === "transcribing" && status === "ready") {
+    if (
+      prevStatusRef.current === "transcribing" &&
+      status === "ready" &&
+      !transcriptionWarning
+    ) {
       setJustCompleted(true);
       const id = window.setTimeout(() => setJustCompleted(false), 2800);
       prevStatusRef.current = status;
       return () => window.clearTimeout(id);
     }
     prevStatusRef.current = status;
-  }, [status]);
+  }, [status, transcriptionWarning]);
 
   const clearProgressState = useCallback(() => {
     setProgress(0);
@@ -797,6 +848,7 @@ export default function Home() {
         if (message.requestId !== activeRequestIdRef.current) return;
         setSegments(message.segments);
         setOutput(message.text);
+        setTranscriptionWarning(message.warning ?? null);
         setStatus("ready");
         setProgressPhase(null);
         setProcessedChunks(null);
@@ -809,6 +861,7 @@ export default function Home() {
       if (message.type === "result") {
         if (message.requestId !== activeRequestIdRef.current) return;
         setOutput(message.text);
+        setTranscriptionWarning(message.warning ?? null);
         setStatus("ready");
         setProgressPhase(null);
         setProcessedChunks(null);
@@ -982,6 +1035,7 @@ export default function Home() {
       setActiveFileName(file.name);
       setOutput("");
       setSegments([]);
+      setTranscriptionWarning(null);
       setViewMode("plain");
       setCopyState("idle");
       setCopyFeedback(null);
@@ -1971,6 +2025,17 @@ export default function Home() {
     return output.trim();
   }, [output, segments]);
 
+  const transcriptWarningText = useMemo(
+    () =>
+      transcriptionWarning
+        ? copy.transcriptIncompleteWarning(
+          transcriptionWarning.failedWindows,
+          transcriptionWarning.totalWindows,
+        )
+        : null,
+    [copy, transcriptionWarning],
+  );
+
   const hasExportContent = useMemo(
     () => plainTextExport.trim().length > 0 || timestampedExport.trim().length > 0,
     [plainTextExport, timestampedExport],
@@ -1985,8 +2050,9 @@ export default function Home() {
       language: selectedLanguage,
       text: output,
       segments,
+      warning: transcriptionWarning ?? undefined,
     };
-  }, [activeFileName, lastTranscriptionModel, output, segments, selectedLanguage]);
+  }, [activeFileName, lastTranscriptionModel, output, segments, selectedLanguage, transcriptionWarning]);
 
   const triggerDownload = useCallback((content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -2076,6 +2142,23 @@ export default function Home() {
         }),
       );
 
+      if (transcriptWarningText) {
+        children.push(
+          new Paragraph({
+            spacing: { before: 240 },
+            children: [
+              new TextRun({
+                text: transcriptWarningText,
+                font: "Calibri",
+                size: 20, // half-points: 20 = 10pt
+                color: "B45309",
+                italics: true,
+              }),
+            ],
+          }),
+        );
+      }
+
       const doc = new Document({
         sections: [{ children }],
       });
@@ -2083,7 +2166,7 @@ export default function Home() {
       const blob = await Packer.toBlob(doc);
       saveAs(blob, `transcription-${timestampForFilename(new Date())}.docx`);
     },
-    [plainTextExport],
+    [plainTextExport, transcriptWarningText],
   );
 
   const exportAsPdf = useCallback(
@@ -2094,9 +2177,10 @@ export default function Home() {
         locale,
         text: plainTextExport,
         title,
+        warning: transcriptWarningText ?? undefined,
       });
     },
-    [locale, plainTextExport],
+    [locale, plainTextExport, transcriptWarningText],
   );
 
   const handleSmartExport = useCallback(
@@ -2676,7 +2760,7 @@ export default function Home() {
           {/* ── Right column: transcript output ── */}
           <div className="flex min-h-0 flex-col">
 
-        {!output ? (
+        {!output && !transcriptionWarning ? (
           <div className="flex min-h-[320px] flex-col overflow-hidden rounded-lg bg-[#151a17] shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] lg:min-h-0 lg:flex-1">
             <div className="flex h-11 shrink-0 items-center justify-between bg-[#19201b] px-4">
               <div className="flex items-center gap-2">
@@ -2841,6 +2925,10 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          {transcriptionWarning ? (
+            <TranscriptWarningBanner copy={copy} warning={transcriptionWarning} />
+          ) : null}
 
           <div className="min-h-0 flex-1">
             {segments.length > 0 && viewMode === "timestamps" ? (

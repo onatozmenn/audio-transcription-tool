@@ -6,6 +6,7 @@ type PdfExportOptions = {
   locale: AppLocale;
   text: string;
   title: string;
+  warning?: string;
 };
 
 const PAGE_WIDTH_MM = 210;
@@ -43,6 +44,24 @@ function exportSelectablePdf(options: PdfExportOptions): void {
       align: lineIndex === textLines.length - 1 ? "left" : "justify",
     });
     y += lineHeight;
+  }
+
+  if (options.warning?.trim()) {
+    y += 8;
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(10);
+    doc.setTextColor(180, 83, 9);
+    const warningLines = doc.splitTextToSize(options.warning.trim(), maxWidth) as string[];
+    const warningLineHeight = 5;
+
+    for (const line of warningLines) {
+      if (y + warningLineHeight > PAGE_HEIGHT_MM - MARGIN_MM) {
+        doc.addPage();
+        y = 25;
+      }
+      doc.text(line, MARGIN_MM, y, { maxWidth });
+      y += warningLineHeight;
+    }
   }
 
   doc.save(options.fileName);
@@ -145,7 +164,7 @@ function exportUnicodeCanvasPdf(options: PdfExportOptions): void {
     color: string,
     lineHeight: number,
     paragraphSpacing: number,
-    alignment: "center" | "justify",
+    alignment: "center" | "justify" | "left",
   ) => {
     context.font = font;
     context.fillStyle = color;
@@ -195,6 +214,9 @@ function exportUnicodeCanvasPdf(options: PdfExportOptions): void {
         if (alignment === "center") {
           context.textAlign = "center";
           context.fillText(line, canvas.width / 2, y, maxWidth);
+        } else if (alignment === "left") {
+          context.textAlign = isRtl ? "right" : "left";
+          context.fillText(line, textX, y, maxWidth);
         } else {
           drawJustifiedLine(line, lineIndex === lines.length - 1);
         }
@@ -224,12 +246,25 @@ function exportUnicodeCanvasPdf(options: PdfExportOptions): void {
     12,
     "justify",
   );
+  if (options.warning?.trim()) {
+    y += 18;
+    drawWrappedText(
+      options.warning.trim(),
+      'italic 600 18px "Noto Sans", "Segoe UI", sans-serif',
+      "#b45309",
+      26,
+      10,
+      "left",
+    );
+  }
   commitPage();
   doc.save(options.fileName);
 }
 
 export function exportTranscriptAsPdf(options: PdfExportOptions): void {
-  const hasUnicode = /[^\x09\x0A\x0D\x20-\x7E]/u.test(`${options.title}\n${options.text}`);
+  const hasUnicode = /[^\x09\x0A\x0D\x20-\x7E]/u.test(
+    `${options.title}\n${options.text}\n${options.warning ?? ""}`,
+  );
   if (hasUnicode) {
     exportUnicodeCanvasPdf(options);
     return;

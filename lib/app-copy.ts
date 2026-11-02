@@ -79,6 +79,8 @@ export type AppCopy = {
   copyTimestampSuccess: string;
   jsonDownloaded: string;
   transcriptionComplete: string;
+  transcriptIncompleteTitle: string;
+  transcriptIncompleteWarning: (failedWindows: number, totalWindows: number) => string;
   uploadDisabledLanguage: string;
   uploadDisabledModel: string;
   dropzone: {
@@ -217,6 +219,9 @@ const EN_COPY: AppCopy = {
   copyTimestampSuccess: "Timestamped text copied",
   jsonDownloaded: "JSON downloaded",
   transcriptionComplete: "Transcription complete",
+  transcriptIncompleteTitle: "Transcript may be incomplete",
+  transcriptIncompleteWarning: (failedWindows, totalWindows) =>
+    `${failedWindows} of ${totalWindows} audio segments could not be transcribed. The transcript may be incomplete.`,
   uploadDisabledLanguage: "Select the audio language before uploading a file.",
   uploadDisabledModel: "Wait for the local transcription engine to finish loading.",
   dropzone: {
@@ -355,6 +360,9 @@ const TR_COPY: AppCopy = {
   copyTimestampSuccess: "Zaman damgalı metin kopyalandı",
   jsonDownloaded: "JSON indirildi",
   transcriptionComplete: "Transkripsiyon tamamlandı",
+  transcriptIncompleteTitle: "Transkript eksik olabilir",
+  transcriptIncompleteWarning: (failedWindows, totalWindows) =>
+    `${totalWindows} ses bölümünden ${failedWindows} tanesi yazıya çevrilemedi. Transkriptte eksik içerik olabilir.`,
   uploadDisabledLanguage: "Dosya yüklemeden önce ses dilini seçin.",
   uploadDisabledModel: "Yerel transkripsiyon motorunun yüklenmesini bekleyin.",
   dropzone: {

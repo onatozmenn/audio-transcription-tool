@@ -23,6 +23,18 @@ type TranscriptSegment = {
   end: number;
 };
 
+type TimeRange = {
+  start: number;
+  end: number;
+};
+
+type TranscriptionWarning = {
+  failedWindows: number;
+  totalWindows: number;
+  failedRanges: TimeRange[];
+  reason: string | null;
+};
+
 type WorkerRequest =
   | { type: "load"; model?: string }
   | { type: "cancel"; requestId: number }
@@ -52,8 +64,14 @@ type WorkerResponse =
     file?: string;
   }
   | { type: "partial"; text: string; requestId: number }
-  | { type: "segments"; requestId: number; text: string; segments: TranscriptSegment[] }
-  | { type: "result"; text: string; requestId: number }
+  | {
+    type: "segments";
+    requestId: number;
+    text: string;
+    segments: TranscriptSegment[];
+    warning?: TranscriptionWarning;
+  }
+  | { type: "result"; text: string; requestId: number; warning?: TranscriptionWarning }
   | { type: "error"; error: string; requestId?: number };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -192,6 +210,24 @@ function dedupeSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   }
 
   return deduped;
+}
+
+function mergeTimeRanges(ranges: TimeRange[]): TimeRange[] {
+  if (ranges.length === 0) return [];
+
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  const merged: TimeRange[] = [];
+
+  for (const range of sorted) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end + 0.01) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+
+  return merged;
 }
 
 // ─── Pipeline initialisation (WebGPU → WASM fallback) ─────────────────────────
@@ -447,6 +483,9 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
     // ── Accumulators ─────────────────────────────────────────────────────────
     const accumulatedTexts: string[] = [];
     const allSegments: TranscriptSegment[] = [];
+    const failedWindowRanges: TimeRange[] = [];
+    let failedWindowCount = 0;
+    let firstWindowError: string | null = null;
     let successfulWindows = 0;
 
     // ── Process each window sequentially ─────────────────────────────────────
@@ -460,6 +499,7 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
         MIN_WINDOW_SAMPLES,
       );
       const windowOffsetSeconds = windowOffset / SAMPLE_RATE;
+      const windowEndSeconds = windowEnd / SAMPLE_RATE;
 
       try {
         // Moonshine: no timestamps, no language, no chunking params.
@@ -476,18 +516,20 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
           } as Record<string, unknown>);
 
         const result = await transcriber(windowData, pipelineOptions);
-        successfulWindows += 1;
-
         const normalized = Array.isArray(result) ? result[0] : result;
+
+        // Build this window's output locally so a parsing failure below is
+        // treated as a failed window instead of leaving half-merged text.
+        const windowSegments: TranscriptSegment[] = [];
+        const windowText = normalizeWhitespace(normalized?.text ?? "");
 
         // ── Collect segments and offset timestamps ──────────────────────────
         if (isMoonshine) {
           // Moonshine doesn't produce per-segment timestamps — create
           // a synthetic segment spanning the entire window.
-          const segText = normalizeWhitespace(normalized?.text ?? "");
-          if (segText) {
-            allSegments.push({
-              text: segText,
+          if (windowText) {
+            windowSegments.push({
+              text: windowText,
               start: windowOffsetSeconds,
               end: windowOffsetSeconds + windowData.length / SAMPLE_RATE,
             });
@@ -500,20 +542,31 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
             const ts = Array.isArray(chunk.timestamp) ? chunk.timestamp : [0, 0];
             const start = toSafeTimestamp(ts[0], 0) + windowOffsetSeconds;
             const end = toSafeTimestamp(ts[1], toSafeTimestamp(ts[0], 0)) + windowOffsetSeconds;
-            allSegments.push({ text, start, end });
+            windowSegments.push({ text, start, end });
           }
         }
 
+        // Only count the window as successful after parsing completed.
+        successfulWindows += 1;
+        if (windowSegments.length > 0) {
+          allSegments.push(...windowSegments);
+        }
+
         // ── Live preview ────────────────────────────────────────────────────
-        const windowText = normalizeWhitespace(normalized?.text ?? "");
         if (windowText) {
           accumulatedTexts.push(windowText);
           postToMain({ type: "partial", text: accumulatedTexts.join(" "), requestId });
         }
       } catch (windowError) {
-        // Gracefully skip windows where the model produces zero tokens.
-        // This typically happens on silent or very noisy segments where
-        // Whisper's decoder emits an empty token_ids array.
+        // Skip this window but keep a record so the UI can warn that the
+        // transcript may be incomplete. This covers silent/noisy windows
+        // (empty token_ids) as well as unexpected inference failures.
+        failedWindowCount += 1;
+        firstWindowError ??= errorMessage(windowError);
+        failedWindowRanges.push({
+          start: Math.round(windowOffsetSeconds * 100) / 100,
+          end: Math.round(windowEndSeconds * 100) / 100,
+        });
         console.warn(
           `[worker] Window ${i + 1}/${totalWindows} failed — skipping:`,
           errorMessage(windowError),
@@ -541,6 +594,16 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
       throw new Error("Transcription failed for every audio segment.");
     }
 
+    const warning: TranscriptionWarning | undefined =
+      failedWindowCount > 0
+        ? {
+          failedWindows: failedWindowCount,
+          totalWindows,
+          failedRanges: mergeTimeRanges(failedWindowRanges),
+          reason: firstWindowError,
+        }
+        : undefined;
+
     // ── Merge + deduplicate segments ─────────────────────────────────────────
     let segments = dedupeSegments(allSegments);
 
@@ -556,8 +619,8 @@ workerScope.addEventListener("message", async (event: MessageEvent<WorkerRequest
       collapseConsecutiveRepeatedNgrams(segments.map((s) => s.text).join(" ")) ||
       rawFullText;
 
-    postToMain({ type: "segments", requestId, text: canonicalText, segments });
-    postToMain({ type: "result", text: canonicalText, requestId });
+    postToMain({ type: "segments", requestId, text: canonicalText, segments, warning });
+    postToMain({ type: "result", text: canonicalText, requestId, warning });
     postToMain({ type: "status", status: "ready", requestId });
   } catch (error) {
     const msg = errorMessage(error);
