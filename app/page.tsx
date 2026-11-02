@@ -2492,7 +2492,7 @@ export default function Home() {
         <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.55fr)] xl:grid-cols-[minmax(330px,0.82fr)_minmax(0,1.65fr)]">
 
           {/* ── Left column: language, model status, upload, progress ── */}
-          <div className="space-y-5 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+          <div className="space-y-5 lg:-ml-1 lg:min-h-0 lg:overflow-y-auto lg:pl-1 lg:pr-1">
 
         <div>
           <label htmlFor="audio-language" className="mb-2 flex items-center gap-2 text-xs font-semibold text-neutral-300">
