@@ -77,6 +77,8 @@ export function UploadDropzone({
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0] ?? null;
+          // Reset the input so selecting the same file again still fires change.
+          event.target.value = "";
           handleFile(file);
         }}
       />
@@ -115,12 +117,13 @@ export function UploadDropzone({
           handleFile(file);
         }}
         className={[
-          "group relative flex min-h-40 w-full cursor-pointer flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed p-4 text-center outline-none transition-all duration-200 ease-out sm:min-h-44 sm:p-5",
-          "hover:border-emerald-200/35 hover:bg-white/[0.035] focus-visible:ring-2 focus-visible:ring-emerald-200/50",
-          disabled ? "cursor-not-allowed border-neutral-800 bg-neutral-900/35" : "",
+          "group relative flex min-h-40 w-full flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed p-4 text-center outline-none transition-all duration-200 ease-out sm:min-h-44 sm:p-5",
+          "focus-visible:ring-2 focus-visible:ring-emerald-200/50",
           isDragging
             ? "border-emerald-200/70 bg-emerald-200/[0.08] shadow-[inset_0_0_0_1px_rgba(167,243,208,0.12)]"
-            : "border-neutral-700/80 bg-[#151816]/85",
+            : disabled
+              ? "cursor-not-allowed border-neutral-800 bg-neutral-900/35"
+              : "cursor-pointer border-neutral-700/80 bg-[#151816]/85 hover:border-emerald-200/35 hover:bg-white/[0.035]",
           !isDragging && error ? "border-red-500/70 bg-red-500/10" : "",
         ].join(" ")}
       >
@@ -129,7 +132,9 @@ export function UploadDropzone({
             "mb-1 transition-colors",
             isDragging
               ? "text-emerald-100"
-              : "text-neutral-500 group-hover:text-neutral-300",
+              : disabled
+                ? "text-neutral-500"
+                : "text-neutral-500 group-hover:text-neutral-300",
           ].join(" ")}
         >
           {error ? <XCircle className="size-7 text-red-300" /> : <UploadCloud className="size-7" />}

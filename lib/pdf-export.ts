@@ -21,7 +21,7 @@ function exportSelectablePdf(options: PdfExportOptions): void {
   if (options.title.trim()) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
-    doc.setTextColor(255, 0, 0);
+    doc.setTextColor(0, 0, 0);
     const titleLines = doc.splitTextToSize(options.title.trim(), maxWidth) as string[];
     doc.text(titleLines, PAGE_WIDTH_MM / 2, y, { align: "center" });
     y += titleLines.length * 10 + 8;
@@ -232,7 +232,7 @@ function exportUnicodeCanvasPdf(options: PdfExportOptions): void {
     drawWrappedText(
       options.title.trim(),
       '700 46px "Noto Sans", "Segoe UI", sans-serif',
-      "#ff0000",
+      "#000000",
       58,
       30,
       "center",

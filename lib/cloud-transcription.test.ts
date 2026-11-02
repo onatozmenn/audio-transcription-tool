@@ -5,6 +5,7 @@ import {
   isManagedBlobUrl,
   isValidAudioFileName,
   isValidAudioMimeType,
+  normalizeTranscriptionResult,
   sanitizeUploadFileName,
 } from "./cloud-transcription";
 
@@ -67,5 +68,27 @@ describe("cloud transcription validation", () => {
     expect(isValidAudioFileName("meeting.M4A")).toBe(true);
     expect(isValidAudioFileName("meeting.exe")).toBe(false);
     expect(isValidAudioFileName("meeting")).toBe(false);
+  });
+
+  it("normalizes malformed Groq responses safely", () => {
+    expect(normalizeTranscriptionResult({
+      text: " hello ",
+      segments: [
+        { text: " hello ", start: 0, end: 2 },
+        { text: "", start: 2, end: 3 },
+        { text: "bad", start: "2", end: 3 },
+        { text: "negative", start: -4, end: -1 },
+      ],
+    })).toEqual({
+      text: "hello",
+      segments: [
+        { text: "hello", start: 0, end: 2 },
+        { text: "negative", start: 0, end: 0 },
+      ],
+    });
+
+    expect(normalizeTranscriptionResult(null)).toEqual({ text: "", segments: [] });
+    expect(normalizeTranscriptionResult({ segments: [{ text: "a", start: 0, end: 1 }] }))
+      .toEqual({ text: "a", segments: [{ text: "a", start: 0, end: 1 }] });
   });
 });

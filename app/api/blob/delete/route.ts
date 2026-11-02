@@ -22,7 +22,11 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   let payload: DeleteBlobRequest;
   try {
-    payload = (await request.json()) as DeleteBlobRequest;
+    const parsed = (await request.json()) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return NextResponse.json({ error: "Invalid delete payload." }, { status: 400 });
+    }
+    payload = parsed as DeleteBlobRequest;
   } catch {
     return NextResponse.json({ error: "Invalid delete payload." }, { status: 400 });
   }

@@ -193,7 +193,7 @@ export function PrivacyPolicyPage({
             {developedBy} <span className="font-medium text-neutral-300">Onat Özmen</span>
           </p>
           <a
-            href="https://www.linkedin.com/in/onat-%C3%B6zmen-5b2212250"
+            href="https://www.linkedin.com/in/onat-ozmen"
             target="_blank"
             rel="noopener noreferrer"
             className="transition-colors hover:text-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200/50"

@@ -121,3 +121,58 @@ export function isManagedBlobUrl(blobUrl: string): boolean {
     return false;
   }
 }
+
+export type NormalizedTranscriptionSegment = {
+  text: string;
+  start: number;
+  end: number;
+};
+
+export type NormalizedTranscriptionResult = {
+  text: string;
+  segments: NormalizedTranscriptionSegment[];
+};
+
+/**
+ * Groq normally returns the expected verbose_json shape, but the API is an
+ * external boundary. Filter malformed entries here so a bad response cannot
+ * leak NaN timestamps or non-string text into the client.
+ */
+export function normalizeTranscriptionResult(payload: unknown): NormalizedTranscriptionResult {
+  const record =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+  const rawSegments = Array.isArray(record.segments) ? record.segments : [];
+  const segments: NormalizedTranscriptionSegment[] = [];
+
+  for (const entry of rawSegments) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const segment = entry as Record<string, unknown>;
+    const text = typeof segment.text === "string" ? segment.text.trim() : "";
+    if (!text) continue;
+
+    const start = segment.start;
+    const end = segment.end;
+    if (
+      typeof start !== "number" ||
+      !Number.isFinite(start) ||
+      typeof end !== "number" ||
+      !Number.isFinite(end)
+    ) {
+      continue;
+    }
+
+    const safeStart = Math.max(0, start);
+    segments.push({
+      text,
+      start: safeStart,
+      end: Math.max(safeStart, end),
+    });
+  }
+
+  const rawText = typeof record.text === "string" ? record.text.trim() : "";
+  const text = rawText || segments.map((segment) => segment.text).join(" ");
+
+  return { text, segments };
+}

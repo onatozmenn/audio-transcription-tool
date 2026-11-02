@@ -13,7 +13,11 @@ import { assertChunkPathname, getTranscriptionSessionToken } from "@/lib/transcr
 export async function POST(request: Request): Promise<NextResponse> {
   let body: HandleUploadBody;
   try {
-    body = (await request.json()) as HandleUploadBody;
+    const parsed = (await request.json()) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return NextResponse.json({ error: "Invalid upload payload." }, { status: 400 });
+    }
+    body = parsed as HandleUploadBody;
   } catch {
     return NextResponse.json({ error: "Invalid upload payload." }, { status: 400 });
   }
@@ -27,8 +31,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     const botResponse = await denyBotTraffic();
     if (botResponse) return botResponse;
 
+    const pathname = body.payload?.pathname;
+    if (typeof pathname !== "string") {
+      return NextResponse.json({ error: "Invalid upload pathname." }, { status: 400 });
+    }
+
     sessionToken = getTranscriptionSessionToken(request);
-    if (!assertChunkPathname(sessionToken, body.payload.pathname)) {
+    if (!assertChunkPathname(sessionToken, pathname)) {
       return NextResponse.json(
         {
           error: `Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`,
@@ -37,8 +46,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
   } else {
-    sessionToken = body.payload.tokenPayload?.trim() || null;
-    if (!assertChunkPathname(sessionToken, body.payload.blob.pathname)) {
+    const tokenPayload = body.payload?.tokenPayload;
+    const pathname = body.payload?.blob?.pathname;
+    sessionToken = typeof tokenPayload === "string" ? tokenPayload.trim() || null : null;
+    if (typeof pathname !== "string" || !assertChunkPathname(sessionToken, pathname)) {
       return NextResponse.json({ error: "Invalid upload completion payload." }, { status: 401 });
     }
   }
@@ -66,10 +77,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json(jsonResponse);
   } catch (error) {
+    console.error("Blob upload authorization failed:", error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to authorize upload.",
-      },
+      { error: "Failed to authorize upload." },
       { status: 400 },
     );
   }

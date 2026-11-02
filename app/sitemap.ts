@@ -3,7 +3,7 @@ import { MetadataRoute } from "next";
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://www.audio-transcription.app";
   const trUrl = `${baseUrl}/tr`;
-  const lastModified = new Date("2026-10-25T00:00:00Z");
+  const lastModified = new Date("2026-11-03T00:00:00Z");
 
   return [
     {

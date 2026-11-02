@@ -44,6 +44,7 @@ describe("transcription sessions", () => {
     const tamperedToken = `${grant.token.slice(0, -1)}x`;
 
     expect(verifyTranscriptionSessionToken(tamperedToken)).toBeNull();
+    expect(verifyTranscriptionSessionToken(`${grant.token}.extra`)).toBeNull();
     expect(assertChunkPathname(grant.token, `${grant.pathname}.other`)).toBeNull();
     expect(assertChunkPathname(grant.token, `/${grant.pathname}`)?.jobId).toBe(session.jobId);
   });

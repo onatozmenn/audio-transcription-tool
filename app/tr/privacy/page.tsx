@@ -25,8 +25,8 @@ const facts: PrivacyFact[] = [
   },
   {
     label: "Mobil",
-    steps: ["Cihaz", "Geçici yükleme", "Groq", "Silme"],
-    note: "Başarılı dosyalar hemen; yarım kalan dosyalar zamanlanmış temizlikle silinir.",
+    steps: ["Cihaz", "Sunucu", "Groq", "Silme"],
+    note: "Ses, sunucumuz üzerinden Groq'a iletilir ve Blob'da saklanmaz.",
   },
   {
     label: "Hizmet koruması",
@@ -49,7 +49,7 @@ const sections: PrivacySection[] = [
             <strong>Masaüstünde:</strong> Ses, Whisper Small veya Moonshine ile tamamen tarayıcınızda işlenir. Ses ve transkript sunucuya gönderilmez.
           </li>
           <li>
-            <strong>Mobilde:</strong> Ses geçici bulut işlemeye gönderilir (Vercel Blob depolaması veya iPhone Safari&apos;de doğrudan sunucumuz üzerinden), Groq Cloud üzerindeki Whisper Large V3 ile işlenir ve ardından silinir.
+            <strong>Mobilde:</strong> Ses, sunucumuz üzerinden geçici bulut işlemeye gönderilir, Groq Cloud üzerindeki Whisper Large V3 ile işlenir ve ardından atılır.
           </li>
         </ul>
       </>
@@ -64,7 +64,7 @@ const sections: PrivacySection[] = [
           <strong>Masaüstü:</strong> Model ilk kullanımda Hugging Face üzerinden indirilip tarayıcı önbelleğine alınır. Sonraki işlemler internet bağlantısı olmadan çalışabilir.
         </p>
         <p>
-          <strong>Mobil:</strong> Ses cihazınızda parçalara ayrılır ve sıkıştırılır. Çoğu tarayıcıda her parça rastgele ve tahmin edilemeyen bir adresle geçici Vercel Blob depolamasına yüklenir; Groq dosyayı bu adresten alır. iPhone Safari&apos;de parçalar saklanmadan sunucumuz üzerinden doğrudan Groq&apos;a iletilir. Başarılı parçalar hemen silinir. Yarım kalan veya başarısız yüklemeler, beş saatten eski olduklarında günlük temizlik göreviyle kaldırılır; yani en fazla yaklaşık 29 saat kalır.
+          <strong>Mobil:</strong> Ses cihazınızda parçalara ayrılır ve sıkıştırılır. Her parça, transkripsiyon için sunucumuz üzerinden doğrudan Groq&apos;a iletilir; ses Vercel Blob&apos;da saklanmaz. İstek tamamlandıktan sonra ses yüklemesi kalmaz.
         </p>
       </>
     ),
@@ -75,7 +75,7 @@ const sections: PrivacySection[] = [
     body: (
       <>
         <p>
-          Mobil API istekleri Vercel BotID ile kontrol edilir ve hız sınırına tabidir. Uygulama, istek IP adresini paylaşımlı hız sınırı deposuna yazmadan önce anahtarlı HMAC değerine dönüştürür; ham IP adresi uygulama tarafından saklanmaz. Kısa süreli hız sınırı sayaçları 30 dakika içinde, günlük bulut kullanım sayacı (ses içeriği olmadan, yalnızca işlenen ses miktarı) 24 saat içinde silinir.
+          Mobil API istekleri Vercel BotID ile kontrol edilir ve hız sınırına tabidir. Uygulama, istek IP adresini paylaşımlı hız sınırı deposuna yazmadan önce anahtarlı HMAC değerine dönüştürür; ham IP adresi uygulama tarafından saklanmaz. Kısa süreli hız sınırı sayaçları en geç 4 saat içinde, günlük bulut kullanım sayacı (ses içeriği olmadan, yalnızca işlenen ses miktarı) 24 saat içinde silinir.
         </p>
         <p>
           Barındırma ve API sağlayıcıları standart ağ günlüklerini kendi gizlilik ve saklama politikalarına göre işleyebilir.
@@ -117,7 +117,7 @@ const sections: PrivacySection[] = [
     body: (
       <ul>
         <li><strong>Hugging Face:</strong> Masaüstü model dosyalarının ilk indirmesi.</li>
-        <li><strong>Vercel (barındırma, Blob ve BotID):</strong> Barındırma, mobil geçici depolama ve kötüye kullanım önleme.</li>
+        <li><strong>Vercel (barındırma ve BotID):</strong> Barındırma ve kötüye kullanım önleme. Ses, Vercel Blob&apos;da saklanmaz.</li>
         <li><strong>Upstash Redis:</strong> En fazla 24 saat yaşayan, anahtarlı takma adlı hız sınırı ve günlük kullanım sayaçları. Ses veya transkript içermez.</li>
         <li>
           <strong>Groq Cloud:</strong> Mobil sesi Whisper Large V3 ile işler. İşlem sırasında <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener noreferrer">Groq Gizlilik Politikası</a> geçerlidir.
@@ -165,7 +165,7 @@ export default function TurkishPrivacyPolicy() {
       sections={sections}
       summary="Sesinizin ne zaman cihazınızda kaldığını, mobil işlem sırasında nereye gittiğini ve geçici dosyaların ne zaman silindiğini açıkça anlatır."
       title="Gizlilik Politikası"
-      updated="25 Ekim 2026"
+      updated="3 Kasım 2026"
     />
   );
 }

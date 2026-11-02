@@ -50,7 +50,10 @@ function encodeClaims(claims: TranscriptionChunkClaims): string {
 }
 
 function decodeClaims(token: string): TranscriptionChunkClaims | null {
-  const [encodedPayload, providedSignature] = token.split(".");
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+
+  const [encodedPayload, providedSignature] = parts;
   if (!encodedPayload || !providedSignature) return null;
 
   const expectedSignature = signPayload(encodedPayload);
@@ -60,9 +63,13 @@ function decodeClaims(token: string): TranscriptionChunkClaims | null {
   if (!timingSafeEqual(providedBuffer, expectedBuffer)) return null;
 
   try {
-    return JSON.parse(
+    const parsed = JSON.parse(
       Buffer.from(encodedPayload, "base64url").toString("utf8"),
-    ) as TranscriptionChunkClaims;
+    ) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as TranscriptionChunkClaims;
   } catch {
     return null;
   }

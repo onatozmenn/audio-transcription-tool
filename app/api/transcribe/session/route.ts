@@ -56,7 +56,11 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   let body: CreateSessionRequest;
   try {
-    body = (await request.json()) as CreateSessionRequest;
+    const parsed = (await request.json()) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return NextResponse.json({ error: "Invalid session payload." }, { status: 400 });
+    }
+    body = parsed as CreateSessionRequest;
   } catch {
     return NextResponse.json({ error: "Invalid session payload." }, { status: 400 });
   }

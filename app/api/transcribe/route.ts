@@ -8,6 +8,7 @@ import {
   isManagedBlobUrl,
   isValidAudioFileName,
   isValidAudioMimeType,
+  normalizeTranscriptionResult,
   TRANSCRIPTION_SESSION_HEADER,
   USE_DIRECT_BLOB_URL_HANDOFF,
 } from "@/lib/cloud-transcription";
@@ -72,8 +73,6 @@ function getRequestIp(req: Request): string {
   return "unknown";
 }
 
-type GroqSegment = { text: string; start: number; end: number };
-type GroqResponse = { text?: string; segments?: GroqSegment[] };
 type BlobTranscriptionRequest = { blobUrl?: string; language?: string };
 type GroqRequest = {
   audioBytes: number;
@@ -114,7 +113,11 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
   if (contentType.includes("application/json")) {
     let body: BlobTranscriptionRequest;
     try {
-      body = (await req.json()) as BlobTranscriptionRequest;
+      const parsed = (await req.json()) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return jsonError("Invalid JSON payload.", 400);
+      }
+      body = parsed as BlobTranscriptionRequest;
     } catch {
       return jsonError("Invalid JSON payload.", 400);
     }
@@ -129,6 +132,20 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
       return jsonError("Unsupported language option.", 400);
     }
 
+    // Validate the session token against the URL path before calling Blob.
+    // This avoids using the endpoint as an unauthenticated metadata oracle.
+    const sessionToken = getTranscriptionSessionToken(req);
+    if (!sessionToken) {
+      return jsonError(`Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`, 401);
+    }
+    const requestPathname = new URL(blobUrl).pathname.replace(/^\/+/, "");
+    if (!isAllowedBlobPathname(requestPathname)) {
+      return jsonError("Unsupported audio upload path.", 400);
+    }
+    if (!assertChunkPathname(sessionToken, requestPathname)) {
+      return jsonError(`Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`, 401);
+    }
+
     let blobMeta;
     try {
       blobMeta = await head(blobUrl);
@@ -136,12 +153,10 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
       return jsonError("Uploaded audio could not be found.", 404);
     }
 
-    if (!isAllowedBlobPathname(blobMeta.pathname)) {
-      return jsonError("Unsupported audio upload path.", 400);
-    }
-    const sessionToken = getTranscriptionSessionToken(req);
-    const sessionClaims = assertChunkPathname(sessionToken, blobMeta.pathname);
-    if (!sessionClaims || !sessionToken) {
+    if (
+      !isAllowedBlobPathname(blobMeta.pathname) ||
+      !assertChunkPathname(sessionToken, blobMeta.pathname)
+    ) {
       return jsonError(`Missing or invalid ${TRANSCRIPTION_SESSION_HEADER} header.`, 401);
     }
     if (blobMeta.size <= 0) {
@@ -176,7 +191,12 @@ async function buildGroqFormData(req: Request): Promise<GroqRequest | NextRespon
     };
   }
 
-  const formData = await req.formData();
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch {
+    return jsonError("Invalid multipart payload.", 400);
+  }
   const fileEntry = formData.get("file");
   const languageEntry = formData.get("language");
 
@@ -340,9 +360,9 @@ export async function POST(req: Request) {
       return jsonError(message, status, retryAfter ? { "Retry-After": retryAfter } : {});
     }
 
-    let data: GroqResponse;
+    let data: unknown;
     try {
-      data = (await response.json()) as GroqResponse;
+      data = await response.json();
     } finally {
       if (groqRequest.cleanupBlobUrl) {
         try {
@@ -353,20 +373,9 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json(
-      {
-        text: data.text ?? "",
-        segments:
-          data.segments?.map((segment) => ({
-            text: segment.text,
-            start: segment.start,
-            end: segment.end,
-          })) ?? [],
-      },
-      {
-        headers: { "Cache-Control": "no-store" },
-      },
-    );
+    return NextResponse.json(normalizeTranscriptionResult(data), {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
       return jsonError("Cloud transcription timed out. Please try again.", 504);

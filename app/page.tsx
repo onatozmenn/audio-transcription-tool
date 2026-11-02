@@ -22,7 +22,6 @@ import {
 import {
   encodeFloat32ToOpusOgg,
   probeOpusOggEncoding,
-  isOpusOggEncodingSupported,
 } from "@/lib/opus-encoder";
 import { APP_COPY, type AppCopy, type AppLocale } from "@/lib/app-copy";
 
@@ -152,43 +151,28 @@ const TARGET_SAMPLE_RATE = 16_000;
 const LOCAL_CHUNK_LENGTH_S = 30;
 const LOCAL_STRIDE_LENGTH_S = 5;
 const LOCAL_AUDIO_STEP_S = LOCAL_CHUNK_LENGTH_S - 2 * LOCAL_STRIDE_LENGTH_S;
-// In public Blob mode, uploads go directly to Blob storage (bypassing the
-// 4.5MB Vercel function body limit) and Groq fetches the URL directly.
-// Larger chunks → far fewer API calls → much less chance of hitting Groq
-// per-minute rate limits on long recordings.
+// BLOB_UPLOAD_ACCESS still configures the optional server-side JSON Blob
+// route, but mobile browser uploads are forced through FormData below because
+// Vercel Blob client uploads are blocked by CORS from both localhost and
+// production.
 const IS_PUBLIC_BLOB_MODE = BLOB_UPLOAD_ACCESS === "public";
 const CLOUD_CHUNK_DURATION_S = IS_PUBLIC_BLOB_MODE ? 600 : 110;
-// Threshold below which we upload the user's ORIGINAL (already-compressed)
-// file to Blob in a single request — no decode, no WAV re-encode. This is a
-// huge Blob-quota saver because typical mobile voice recordings (mp3/m4a/
-// opus) are ~64-128 kbps (≈ 30-60 MB / hour), much smaller than the 16-bit
-// PCM WAV we would otherwise produce (≈ 115 MB / hour).
-//
-// Groq whisper-large-v3 accepts up to 25 MB per request, so anything under
-// MAX_AUDIO_FILE_BYTES (24 MB in public mode) can be sent as-is.
-const MAX_CLOUD_DIRECT_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
-  ? 24 * 1024 * 1024
-  : 3 * 1024 * 1024;
 // Small compressed recordings can still represent very long audio. Once the
 // duration grows beyond a normal cloud chunk, a single mobile Groq request can
 // spend too long in the "uploaded, now transcribing" phase and appear stuck at
 // roughly 70% progress. Force the long-file path back through chunking.
 const MAX_DIRECT_CLOUD_AUDIO_SECONDS = CLOUD_CHUNK_DURATION_S;
-const IOS_SAFARI_CLOUD_CHUNK_DURATION_S = 180;
-const IOS_SAFARI_OPUS_FORMDATA_CHUNK_DURATION_S = 240;
-const IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S = 90;
+const DIRECT_OPUS_CHUNK_DURATION_S = 240;
+const DIRECT_PCM_CHUNK_DURATION_S = 90;
 // Vercel serverless functions enforce a 4.5 MB request body limit.
 // Keep well under that ceiling so the FormData wrapper + field names
 // don't push us over.
 const MAX_SAFE_FORMDATA_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
   ? 4 * 1024 * 1024
   : 3_500_000;
-const UNCOMPRESSED_CLOUD_CHUNK_DURATION_S = 180;
-// 16 kHz mono PCM16 WAV bytes per second = 32 000. 10 min ≈ 19.2 MB.
-// Private mode still has to proxy through the function body → keep 4 MB.
-const MAX_CLOUD_CHUNK_UPLOAD_BYTES = IS_PUBLIC_BLOB_MODE
-  ? 20 * 1024 * 1024
-  : 4 * 1024 * 1024;
+// Every mobile chunk is proxied through the function as FormData, so keep
+// PCM WAV chunks under the 4.5 MB serverless request-body limit.
+const MAX_CLOUD_CHUNK_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_MOBILE_DECODE_FILE_BYTES = 90 * 1024 * 1024;
 const MAX_MOBILE_CLOUD_AUDIO_SECONDS = 2 * 60 * 60;
 const MAX_LOCAL_DECODE_FILE_BYTES = 250 * 1024 * 1024;
@@ -196,6 +180,11 @@ const MAX_LOCAL_AUDIO_SECONDS = 2 * 60 * 60;
 const MAX_CLOUD_REQUEST_RETRIES = 6;
 const CLOUD_RETRY_BASE_DELAY_MS = 1_500;
 const MAX_CLOUD_RETRY_DELAY_MS = 20_000;
+// Vercel Blob's browser upload endpoint (vercel.com/api/blob) currently fails
+// CORS preflight from both localhost and production. Route every mobile chunk
+// through our own function as multipart FormData instead; chunks stay under
+// the 4.5 MB function body limit and Groq receives them directly.
+const USE_DIRECT_FORM_DATA_UPLOAD = true;
 const APP_URL = "https://www.audio-transcription.app";
 const APP_URL_TR = `${APP_URL}/tr`;
 
@@ -353,6 +342,24 @@ const HOW_TO_JSON_LD_TR = {
 
 function clampProgress(value: number): number {
   return Math.max(0, Math.min(100, value));
+}
+
+function readModelCachedFlag(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("whisper_model_cached") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markModelCached(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("whisper_model_cached", "1");
+  } catch {
+    // Storage can be unavailable in privacy modes; caching is best-effort.
+  }
 }
 
 function downmixToMono(audioBuffer: AudioBuffer): Float32Array {
@@ -549,7 +556,7 @@ function timestampForFilename(date: Date): string {
 }
 
 function formatSegmentTimestamp(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
   const hours = Math.floor(safeSeconds / 3600);
   const minutes = Math.floor((safeSeconds % 3600) / 60);
   const secs = safeSeconds % 60;
@@ -609,6 +616,7 @@ export default function Home() {
   const outputTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const languageSelectRef = useRef<HTMLButtonElement | null>(null);
   const exportDialogRef = useRef<HTMLDivElement | null>(null);
+  const downloadFilesRef = useRef(new Map<string, { loaded: number; total: number }>());
   const transcribeStartedAtRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -623,7 +631,9 @@ export default function Home() {
   const [transcriptionWarning, setTranscriptionWarning] = useState<TranscriptionWarning | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
+  const [isFileProcessing, setIsFileProcessing] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<"auto" | WhisperLanguage | null>(null);
+  const [lastTranscriptionLanguage, setLastTranscriptionLanguage] = useState<"auto" | WhisperLanguage | null>(null);
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [copiedButton, setCopiedButton] = useState<string | null>(null);
@@ -648,12 +658,6 @@ export default function Home() {
     () => typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent),
   );
   const [isViaCloud, setIsViaCloud] = useState(false);
-  const [preferFetchBlobUpload] = useState(
-    () => typeof navigator !== "undefined" &&
-      /iPhone|iPad|iPod/i.test(navigator.userAgent) &&
-      /AppleWebKit/i.test(navigator.userAgent) &&
-      !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(navigator.userAgent),
-  );
 
   // Desktop: use Moonshine (smaller/faster) for English, Whisper for other languages.
   const desiredLocalModel = useMemo(
@@ -662,9 +666,7 @@ export default function Home() {
   );
   // True if the model was successfully loaded in a previous session.
   // Stored in localStorage so page refresh doesn't re-show the loading UI.
-  const [wasModelEverLoaded, setWasModelEverLoaded] = useState(
-    () => typeof window !== "undefined" && localStorage.getItem("whisper_model_cached") === "1",
-  );
+  const [wasModelEverLoaded, setWasModelEverLoaded] = useState(readModelCachedFlag);
 
   // Kick off model preload as soon as the user picks a language.
   // The worker's getTranscriber() caches the pipeline, so when the
@@ -680,6 +682,13 @@ export default function Home() {
     // changes while already ready (e.g. switching between English/other).
     if (status === "idle" || (status === "ready" && loadedModelRef.current !== desiredLocalModel)) {
       const loadRequest: WorkerRequest = { type: "load", model: desiredLocalModel };
+      downloadFilesRef.current.clear();
+      setProgress(0);
+      setProgressPhase(null);
+      setDownloadedBytes(null);
+      setTotalBytes(null);
+      setSawActiveDownload(false);
+      setLoadingDetail(null);
       worker.postMessage(loadRequest);
       loadedModelRef.current = desiredLocalModel;
     }
@@ -711,6 +720,7 @@ export default function Home() {
     setEtaSeconds(null);
     setDownloadedBytes(null);
     setTotalBytes(null);
+    downloadFilesRef.current.clear();
     setLoadingDetail(null);
     setCurrentSlice(null);
     setTotalSlices(null);
@@ -743,6 +753,7 @@ export default function Home() {
           }
         } else if (message.status === "transcribing") {
           setStatus("transcribing");
+          if (typeof message.requestId === "number") setIsFileProcessing(true);
           setWarmUpElapsed(0);
           setLoadingDetail(null);
           setProgress(0);
@@ -759,11 +770,10 @@ export default function Home() {
           // Persist that the model has been loaded at least once so future
           // page loads can suppress the brief loading UI on reinitialisation.
           setWasModelEverLoaded(true);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("whisper_model_cached", "1");
-          }
+          markModelCached();
         } else if (message.status === "error") {
           setStatus("error");
+          setIsFileProcessing(false);
           setSawActiveDownload(false);
           setLoadingDetail(null);
           clearProgressState();
@@ -799,10 +809,33 @@ export default function Home() {
           setTotalChunks(null);
           setEtaSeconds(null);
           transcribeStartedAtRef.current = null;
-          if (typeof message.loaded === "number") {
-            setDownloadedBytes((prev) => Math.max(prev ?? 0, message.loaded as number));
+
+          // Model downloads report each shard separately. Accumulate the
+          // per-file maxima so the byte readout never pairs a loaded value
+          // from one shard with the total of another.
+          if (typeof message.loaded === "number" || typeof message.total === "number") {
+            const fileKey = message.file ?? "model";
+            const loaded = typeof message.loaded === "number" && Number.isFinite(message.loaded)
+              ? Math.max(0, message.loaded)
+              : 0;
+            const total = typeof message.total === "number" && Number.isFinite(message.total) && message.total > 0
+              ? message.total
+              : 0;
+            const previous = downloadFilesRef.current.get(fileKey);
+            downloadFilesRef.current.set(fileKey, {
+              loaded: Math.max(previous?.loaded ?? 0, loaded),
+              total: Math.max(previous?.total ?? 0, total),
+            });
+
+            let loadedSum = 0;
+            let totalSum = 0;
+            for (const file of downloadFilesRef.current.values()) {
+              loadedSum += file.loaded;
+              totalSum += file.total;
+            }
+            setDownloadedBytes(loadedSum);
+            setTotalBytes(totalSum > 0 ? totalSum : null);
           }
-          if (typeof message.total === "number" && message.total > 0) setTotalBytes(message.total);
           return;
         }
 
@@ -850,6 +883,7 @@ export default function Home() {
         setOutput(message.text);
         setTranscriptionWarning(message.warning ?? null);
         setStatus("ready");
+        setIsFileProcessing(false);
         setProgressPhase(null);
         setProcessedChunks(null);
         setTotalChunks(null);
@@ -863,6 +897,7 @@ export default function Home() {
         setOutput(message.text);
         setTranscriptionWarning(message.warning ?? null);
         setStatus("ready");
+        setIsFileProcessing(false);
         setProgressPhase(null);
         setProcessedChunks(null);
         setTotalChunks(null);
@@ -879,6 +914,7 @@ export default function Home() {
           return;
         }
         setStatus("error");
+        setIsFileProcessing(false);
         setError(locale === "en" ? message.error : copy.errors.workerUnexpected);
         clearProgressState();
       }
@@ -909,6 +945,7 @@ export default function Home() {
 
     worker.onerror = (event) => {
       setStatus("error");
+      setIsFileProcessing(false);
       setError(locale === "en" && event.message ? event.message : copy.errors.workerUnexpected);
       clearProgressState();
     };
@@ -920,6 +957,7 @@ export default function Home() {
     const currentRequestId = activeRequestIdRef.current;
     activeRequestIdRef.current += 1;
     setIsCancelling(true);
+    setIsFileProcessing(false);
     setError(null);
     clearProgressState();
 
@@ -947,16 +985,28 @@ export default function Home() {
       setStatus("ready");
       setActiveFileName(null);
     } else {
-      // Model wasn't loaded yet — terminate and let it restart cleanly.
+      // Model wasn't loaded yet — terminate the stalled download.
+      const wasPreloadOnly = !isFileProcessing && status === "loading";
       if (workerRef.current) {
         workerRef.current.terminate();
         workerRef.current = null;
       }
       const newWorker = initializeWorker();
-      if (selectedLanguage && newWorker) {
-        const loadRequest: WorkerRequest = { type: "load", model: desiredLocalModel };
-        newWorker.postMessage(loadRequest);
-        loadedModelRef.current = desiredLocalModel;
+
+      if (wasPreloadOnly) {
+        // A background model preload has no file to cancel. Clear the language
+        // so the preload effect does not immediately start the download again;
+        // selecting a language will start it in a fresh worker.
+        setSelectedLanguage(null);
+      } else {
+        // A file was waiting for the model. Drop the file and preload a clean
+        // worker so the next upload starts from a known state.
+        setActiveFileName(null);
+        if (selectedLanguage && newWorker) {
+          const loadRequest: WorkerRequest = { type: "load", model: desiredLocalModel };
+          newWorker.postMessage(loadRequest);
+          loadedModelRef.current = desiredLocalModel;
+        }
       }
       setStatus("idle");
     }
@@ -964,7 +1014,7 @@ export default function Home() {
     window.setTimeout(() => {
       setIsCancelling(false);
     }, 300);
-  }, [clearProgressState, initializeWorker, isViaCloud, selectedLanguage, status, desiredLocalModel]);
+  }, [clearProgressState, initializeWorker, isFileProcessing, isViaCloud, selectedLanguage, status, desiredLocalModel]);
 
   useEffect(() => {
     initializeWorker();
@@ -972,6 +1022,9 @@ export default function Home() {
     return () => {
       if (copyResetTimeoutRef.current !== null) {
         window.clearTimeout(copyResetTimeoutRef.current);
+      }
+      if (copiedBtnTimeoutRef.current !== null) {
+        window.clearTimeout(copiedBtnTimeoutRef.current);
       }
       if (workerRef.current) {
         workerRef.current.terminate();
@@ -983,9 +1036,6 @@ export default function Home() {
   useEffect(() => {
     const textarea = outputTextareaRef.current;
     if (!textarea) return;
-
-    textarea.style.height = "320px";
-    textarea.style.overflowY = "auto";
 
     // Auto-scroll to the bottom while transcription is streaming so the user
     // can watch new chunks appear live without manually scrolling.
@@ -1033,12 +1083,19 @@ export default function Home() {
       activeRequestIdRef.current = requestId;
 
       setActiveFileName(file.name);
+      setIsFileProcessing(true);
+      setLastTranscriptionLanguage(selectedLanguage ?? (isMobile ? "auto" : "english"));
       setOutput("");
       setSegments([]);
       setTranscriptionWarning(null);
       setViewMode("plain");
       setCopyState("idle");
       setCopyFeedback(null);
+      if (copiedBtnTimeoutRef.current !== null) {
+        window.clearTimeout(copiedBtnTimeoutRef.current);
+        copiedBtnTimeoutRef.current = null;
+      }
+      setCopiedButton(null);
       setError(null);
       setLastTranscriptionModel(null);
       clearProgressState();
@@ -1244,7 +1301,7 @@ export default function Home() {
                   [TRANSCRIPTION_SESSION_HEADER]: chunkGrant.token,
                 },
                 abortSignal: uploadTimeoutController.signal,
-                ...(preferFetchBlobUpload
+                ...(USE_DIRECT_FORM_DATA_UPLOAD
                   ? {}
                   : {
                     onUploadProgress: ({ percentage }: { percentage: number }) => {
@@ -1374,10 +1431,15 @@ export default function Home() {
                   return (await response.json()) as CloudTranscribeResponse;
                 }
 
-                // Daily audio budget is exhausted; retrying only burns more
-                // transfer and the server already deleted the uploaded blob.
-                if (response.status === 429 && response.headers.get("x-audio-quota")) {
-                  throw new Error(copy.errors.dailyQuotaReached);
+                // Quota failures are terminal; retrying only burns transfer.
+                // The header distinguishes daily budgets from chunk-token replay.
+                const audioQuota = response.headers.get("x-audio-quota");
+                if (response.status === 429 && audioQuota) {
+                  throw new Error(
+                    audioQuota === "chunk-token-uses"
+                      ? copy.errors.sessionUsedTooMany
+                      : copy.errors.dailyQuotaReached,
+                  );
                 }
 
                 const hasAttemptsLeft = attempt < maxAttempts;
@@ -1484,8 +1546,13 @@ export default function Home() {
                 return (await response.json()) as CloudTranscribeResponse;
               }
 
-              if (response.status === 429 && response.headers.get("x-audio-quota")) {
-                throw new Error(copy.errors.dailyQuotaReached);
+              const audioQuota = response.headers.get("x-audio-quota");
+              if (response.status === 429 && audioQuota) {
+                throw new Error(
+                  audioQuota === "chunk-token-uses"
+                    ? copy.errors.sessionUsedTooMany
+                    : copy.errors.dailyQuotaReached,
+                );
               }
 
               const hasAttemptsLeft = attempt < maxAttempts;
@@ -1519,31 +1586,23 @@ export default function Home() {
             throw new Error(copy.errors.cloudTranscriptionFailed);
           };
 
-          // Small mobile files can upload directly. Larger ones are decoded once,
-          // then transcoded and sent to Blob storage chunk-by-chunk.
+          // Small mobile files are sent as one FormData request. Larger or
+          // longer files are decoded and chunked under the function body limit.
           let totalCloudChunks = 1;
           let decodedAudioBuffer: AudioBuffer | null = null;
           let sourceSampleRate = TARGET_SAMPLE_RATE;
           let sourceSamplesPerChunk = 0;
           let targetSamplesPerChunk = 0;
-          const useSafariDirectTranscribe = preferFetchBlobUpload;
-          // iPhone Safari only gets Opus when a real probe encode succeeds;
-          // otherwise it keeps the proven 90s PCM WAV path.
-          const useOpusEncoding = useSafariDirectTranscribe
-            ? await probeOpusOggEncoding(TARGET_SAMPLE_RATE)
-            : isOpusOggEncodingSupported();
-          const canAttemptSingleBlobUpload = useSafariDirectTranscribe
-            ? file.size <= MAX_SAFE_FORMDATA_UPLOAD_BYTES
-            : file.size <= MAX_CLOUD_DIRECT_UPLOAD_BYTES;
+          const useDirectFormDataUpload = USE_DIRECT_FORM_DATA_UPLOAD;
+          // Probe a real 0.5s encode before choosing the chunk format. The
+          // constructor check alone does not prove that mono 16 kHz Opus is
+          // usable, and the session pathname extension must match the bytes we
+          // upload.
+          const useOpusEncoding = await probeOpusOggEncoding(TARGET_SAMPLE_RATE);
+          const canAttemptSingleUpload = file.size <= MAX_SAFE_FORMDATA_UPLOAD_BYTES;
           let detectedDurationSeconds: number | null = null;
 
-          if (useSafariDirectTranscribe) {
-            void getAudioDurationSeconds(file).then((duration) => {
-              if (requestId !== activeRequestIdRef.current) return;
-              if (duration === null) return;
-              setAudioDurationSeconds(Math.max(1, Math.round(duration)));
-            });
-          } else if (canAttemptSingleBlobUpload) {
+          if (canAttemptSingleUpload) {
             detectedDurationSeconds = await getAudioDurationSeconds(file);
             if (requestId !== activeRequestIdRef.current) return;
 
@@ -1556,20 +1615,18 @@ export default function Home() {
             }
           }
 
-          const shouldUseSingleBlobUpload =
-            useSafariDirectTranscribe
-              ? canAttemptSingleBlobUpload
-              : canAttemptSingleBlobUpload &&
-                (detectedDurationSeconds === null ||
-                  detectedDurationSeconds <= MAX_DIRECT_CLOUD_AUDIO_SECONDS);
+          const shouldUseSingleUpload =
+            canAttemptSingleUpload &&
+            (detectedDurationSeconds === null ||
+              detectedDurationSeconds <= MAX_DIRECT_CLOUD_AUDIO_SECONDS);
 
-          if (!shouldUseSingleBlobUpload) {
+          if (!shouldUseSingleUpload) {
             if (file.size > MAX_MOBILE_DECODE_FILE_BYTES) {
               throw new Error(copy.errors.mobileTooLarge);
             }
 
             setLoadingDetail(
-              canAttemptSingleBlobUpload
+              canAttemptSingleUpload
                 ? copy.longRecording
                 : copy.preparingUpload,
             );
@@ -1588,18 +1645,9 @@ export default function Home() {
             // When WebCodecs Opus is available we compress ~10× on the fly,
             // so the per-chunk size budget is dominated by audio duration
             // rather than raw PCM bytes.
-            const preferredChunkDurationSeconds = Math.min(
-              useSafariDirectTranscribe
-                ? (useOpusEncoding
-                  ? IOS_SAFARI_OPUS_FORMDATA_CHUNK_DURATION_S
-                  : IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S)
-                : CLOUD_CHUNK_DURATION_S,
-              preferFetchBlobUpload && !useSafariDirectTranscribe
-                ? IOS_SAFARI_CLOUD_CHUNK_DURATION_S
-                : useOpusEncoding
-                  ? CLOUD_CHUNK_DURATION_S
-                  : UNCOMPRESSED_CLOUD_CHUNK_DURATION_S,
-            );
+            const preferredChunkDurationSeconds = useOpusEncoding
+              ? DIRECT_OPUS_CHUNK_DURATION_S
+              : DIRECT_PCM_CHUNK_DURATION_S;
             const desiredTargetSamplesPerChunk =
               preferredChunkDurationSeconds * TARGET_SAMPLE_RATE;
             const maxTargetSamplesPerChunk = useOpusEncoding
@@ -1622,12 +1670,16 @@ export default function Home() {
           }
           setTotalChunks(totalCloudChunks);
 
-          if (useSafariDirectTranscribe) {
+          if (useDirectFormDataUpload) {
             // Create a session so the x-transcription-session header is
             // present — Vercel edge bot protection requires it.
             setLoadingDetail(copy.startingSecureSession);
             const directSessionFileName =
-              decodedAudioBuffer !== null && useOpusEncoding ? "chunk.ogg" : file.name;
+              decodedAudioBuffer !== null
+                ? useOpusEncoding
+                  ? "chunk.ogg"
+                  : "chunk.wav"
+                : file.name;
             const directSession = await createCloudSession(
               totalCloudChunks,
               directSessionFileName,
@@ -1641,7 +1693,7 @@ export default function Home() {
             // WAV pieces must stay under the ~4 MB FormData body limit, so an
             // Opus chunk that has to fall back is re-sent as 90s WAV pieces.
             const pcmPieceSamples =
-              IOS_SAFARI_PCM_FORMDATA_CHUNK_DURATION_S * TARGET_SAMPLE_RATE;
+              DIRECT_PCM_CHUNK_DURATION_S * TARGET_SAMPLE_RATE;
             const encodeWavPieces = (
               chunkData: Float32Array,
               baseOffsetS: number,
@@ -1793,6 +1845,7 @@ export default function Home() {
             setOutput(combinedText);
             setSegments(combinedSegments);
             setStatus("ready");
+            setIsFileProcessing(false);
             setProgressPhase(null);
             setIsViaCloud(false);
             abortControllerRef.current = null;
@@ -1800,12 +1853,16 @@ export default function Home() {
           }
 
           setLoadingDetail(copy.startingSecureSession);
-          // When we transcode chunks to Opus, the session-reserved pathname
-          // MUST end in .ogg so Groq's URL-based upload treats the payload
-          // as Ogg/Opus rather than guessing from the original extension.
+          // When we transcode chunks, the session-reserved pathname extension
+          // MUST match the uploaded payload so Groq's URL-based upload treats
+          // Ogg/Opus and WAV correctly instead of guessing from the original
+          // file extension.
           const isChunkedCloudUpload = decodedAudioBuffer !== null;
-          const sessionFileName =
-            isChunkedCloudUpload && useOpusEncoding ? "chunk.ogg" : file.name;
+          const sessionFileName = isChunkedCloudUpload
+            ? useOpusEncoding
+              ? "chunk.ogg"
+              : "chunk.wav"
+            : file.name;
           const cloudSession = await createCloudSession(
             totalCloudChunks,
             sessionFileName,
@@ -1918,6 +1975,7 @@ export default function Home() {
           setOutput(combinedText);
           setSegments(combinedSegments);
           setStatus("ready");
+          setIsFileProcessing(false);
           setProgressPhase(null);
           setIsViaCloud(false);
           abortControllerRef.current = null;
@@ -1926,12 +1984,15 @@ export default function Home() {
           if (controller.signal.aborted) return;
           if (requestId !== activeRequestIdRef.current) return;
           setStatus("error");
+          setIsFileProcessing(false);
+          clearProgressState();
           const cloudMessage = cloudError instanceof Error ? cloudError.message : "";
           const localizedCloudErrors = new Set([
             copy.errors.cloudRequestFailed(400),
             copy.errors.cloudTranscriptionFailed,
             copy.errors.cloudUploadFailed,
             copy.errors.dailyQuotaReached,
+            copy.errors.sessionUsedTooMany,
             copy.errors.mobileTooLarge,
             copy.errors.mobileTooLong,
             copy.errors.sessionGrantMissing,
@@ -1983,6 +2044,7 @@ export default function Home() {
       } catch (decodeError) {
         if (requestId !== activeRequestIdRef.current) return;
         setStatus("error");
+        setIsFileProcessing(false);
         const decodeMessage = decodeError instanceof Error ? decodeError.message : "";
         const localizedDecodeErrors = new Set([
           copy.errors.localTooLarge,
@@ -1995,7 +2057,7 @@ export default function Home() {
         );
       }
     },
-    [cancelTranscription, clearProgressState, copy, desiredLocalModel, isMobile, locale, preferFetchBlobUpload, selectedLanguage, status],
+    [cancelTranscription, clearProgressState, copy, desiredLocalModel, isMobile, locale, selectedLanguage, status],
   );
 
   const handleFileSelected = useCallback(
@@ -2047,12 +2109,12 @@ export default function Home() {
       createdAt: new Date().toISOString(),
       fileName: activeFileName ?? null,
       model: lastTranscriptionModel,
-      language: selectedLanguage,
+      language: lastTranscriptionLanguage,
       text: output,
       segments,
       warning: transcriptionWarning ?? undefined,
     };
-  }, [activeFileName, lastTranscriptionModel, output, segments, selectedLanguage, transcriptionWarning]);
+  }, [activeFileName, lastTranscriptionLanguage, lastTranscriptionModel, output, segments, transcriptionWarning]);
 
   const triggerDownload = useCallback((content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -2063,7 +2125,8 @@ export default function Home() {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    // Give the browser a moment to start the download before releasing the URL.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }, []);
 
   const writeToClipboard = useCallback(
@@ -2120,7 +2183,7 @@ export default function Home() {
                 text: title.trim(),
                 font: "Calibri Light",
                 size: 44, // half-points: 44 = 22pt
-                color: "FF0000",
+                color: "000000",
                 bold: true,
               }),
             ],
@@ -2333,12 +2396,17 @@ export default function Home() {
       return copy.downloadingModelPercent(pct);
     }
     if (progressPhase === "transcribing") {
+      // Use the processed chunk fraction against the real audio duration.
+      // Safari and private-mode chunks are not all CLOUD_CHUNK_DURATION_S long,
+      // so multiplying the chunk count by a fixed duration overstates progress.
       const processedAudioSec =
-        processedChunks !== null
-          ? Math.round(
-            processedChunks * (isMobile ? CLOUD_CHUNK_DURATION_S : LOCAL_AUDIO_STEP_S),
-          )
-          : null;
+        processedChunks !== null && totalChunks !== null && totalChunks > 0 && totalAudioSeconds !== null
+          ? Math.round(totalAudioSeconds * (processedChunks / totalChunks))
+          : processedChunks !== null
+            ? Math.round(
+              processedChunks * (isMobile ? CLOUD_CHUNK_DURATION_S : LOCAL_AUDIO_STEP_S),
+            )
+            : null;
       const clampedProcessedAudioSec =
         processedAudioSec !== null && totalAudioSeconds !== null
           ? Math.min(processedAudioSec, totalAudioSeconds)
@@ -2365,7 +2433,7 @@ export default function Home() {
       return [sliceStr, timeStr, pctStr].filter(Boolean).join("  ·  ");
     }
     return "";
-  }, [copy, currentSlice, downloadedBytes, isMobile, processedChunks, progress, progressPhase, totalAudioSeconds, totalBytes, totalSlices]);
+  }, [copy, currentSlice, downloadedBytes, isMobile, processedChunks, progress, progressPhase, totalAudioSeconds, totalBytes, totalChunks, totalSlices]);
 
   const roughAudioMinutes =
     totalAudioSeconds !== null
@@ -2393,11 +2461,10 @@ export default function Home() {
     return copy.etaRemaining(formatSegmentTimestamp(etaSeconds));
   }, [copy, etaSeconds, isMobile, progressPhase, roughAudioMinutes]);
 
-  const busy =
-    status === "loading" || status === "decoding" || status === "transcribing" || isCancelling;
-  // Only show the compact file row (instead of dropzone) when there's an active file being processed.
-  // During model preloading (status === "loading", activeFileName === null) we keep the dropzone visible.
-  const uploadBusy = busy && activeFileName !== null;
+  // Only show the compact file row (instead of the dropzone) while a file is
+  // actually being processed. A background model preload after a finished
+  // transcript must not make the old file look busy again.
+  const uploadBusy = isFileProcessing && activeFileName !== null;
   /** True once the model pipeline is loaded and ready to transcribe. */
   // Suppress the loading UI on page-refresh if the model was previously cached.
   // Only show the loading UI again if bytes are actually being transferred
@@ -2492,7 +2559,7 @@ export default function Home() {
         <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.55fr)] xl:grid-cols-[minmax(330px,0.82fr)_minmax(0,1.65fr)]">
 
           {/* ── Left column: language, model status, upload, progress ── */}
-          <div className="space-y-5 lg:-ml-1 lg:min-h-0 lg:overflow-y-auto lg:pl-1 lg:pr-1">
+          <div className="space-y-5 lg:-ml-1 lg:min-h-0 lg:overflow-y-auto lg:pb-1 lg:pl-1 lg:pr-1">
 
         <div>
           <label htmlFor="audio-language" className="mb-2 flex items-center gap-2 text-xs font-semibold text-neutral-300">
@@ -2943,7 +3010,7 @@ export default function Home() {
                         [{formatSegmentTimestamp(segment.start)}]
                       </span>
                       <p
-                        className="text-sm leading-6 text-neutral-200 font-sans"
+                        className="min-w-0 break-words text-sm leading-6 text-neutral-200 font-sans"
                       >
                         {segment.text}
                       </p>

@@ -139,12 +139,17 @@ export async function probeOpusOggEncoding(
       sampleRate,
       bitrate,
     );
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), 3_000);
+      timeoutId = setTimeout(() => resolve(null), 3_000);
     });
-    const blob = await Promise.race([probe, timeout]);
-    // Ogg headers alone are ~100 bytes; real audio pages push it past that.
-    return blob !== null && blob.size > 100;
+    try {
+      const blob = await Promise.race([probe, timeout]);
+      // Ogg headers alone are ~100 bytes; real audio pages push it past that.
+      return blob !== null && blob.size > 100;
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
   } catch {
     return false;
   }
@@ -190,32 +195,39 @@ export async function encodeFloat32ToOpusOgg(
     },
   });
 
-  encoder.configure({
-    codec: "opus",
-    sampleRate,
-    numberOfChannels: 1,
-    bitrate,
-  });
+  let audioData: AudioData | null = null;
+  try {
+    encoder.configure({
+      codec: "opus",
+      sampleRate,
+      numberOfChannels: 1,
+      bitrate,
+    });
 
-  // Copy to a detached buffer so AudioData's internal close() won't touch
-  // the caller's Float32Array.
-  const buffer = new Float32Array(samples.length);
-  buffer.set(samples);
+    // Copy to a detached buffer so AudioData's internal close() won't touch
+    // the caller's Float32Array.
+    const buffer = new Float32Array(samples.length);
+    buffer.set(samples);
 
-  const audioData = new AudioDataCtor({
-    format: "f32",
-    sampleRate,
-    numberOfFrames: buffer.length,
-    numberOfChannels: 1,
-    timestamp: 0,
-    data: buffer,
-  });
+    audioData = new AudioDataCtor({
+      format: "f32",
+      sampleRate,
+      numberOfFrames: buffer.length,
+      numberOfChannels: 1,
+      timestamp: 0,
+      data: buffer,
+    });
 
-  encoder.encode(audioData);
-  audioData.close();
-
-  await encoder.flush();
-  encoder.close();
+    encoder.encode(audioData);
+    await encoder.flush();
+  } finally {
+    audioData?.close();
+    try {
+      encoder.close();
+    } catch {
+      // Closing an already-closed or unconfigured encoder is harmless.
+    }
+  }
 
   if (encoderError) throw encoderError;
   if (packets.length === 0) {
@@ -263,6 +275,11 @@ export async function encodeFloat32ToOpusOgg(
     while (idx < packets.length) {
       const pkt = packets[idx];
       const lacingBytes = lacingFor(pkt.length);
+      // A packet larger than one Ogg page's 255 lacing values cannot be
+      // muxed by this simple writer. Fail instead of looping forever.
+      if (lacingBytes.length > 255) {
+        throw new Error("Opus packet is too large for a single Ogg page.");
+      }
       // Each Ogg page holds at most 255 lacing values.
       if (pageSegTable.length + lacingBytes.length > 255) break;
 
