@@ -2496,7 +2496,7 @@ export default function Home() {
 
         <div>
           <label htmlFor="audio-language" className="mb-2 flex items-center gap-2 text-xs font-semibold text-neutral-300">
-            <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/50">01</span>
+            <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/60">01</span>
             <span>{copy.stepLanguage}</span>
           </label>
           <div
@@ -2576,7 +2576,7 @@ export default function Home() {
             <div>
               <p className="mb-2 text-xs font-medium text-neutral-400">
                 <span className="inline-flex items-center gap-2 normal-case">
-                  <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/50">02</span>
+                  <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/60">02</span>
                   <span className="text-xs font-semibold text-neutral-300">{copy.stepUpload}</span>
                 </span>
               </p>
@@ -2592,7 +2592,7 @@ export default function Home() {
             <div>
               <p className="mb-2 text-xs font-medium text-neutral-400">
                 <span className="inline-flex items-center gap-2 normal-case">
-                  <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/50">02</span>
+                  <span className="w-5 shrink-0 text-center font-display text-[10px] tabular-nums text-emerald-200/60">02</span>
                   <span className="text-xs font-semibold text-neutral-300">{copy.stepUpload}</span>
                 </span>
               </p>

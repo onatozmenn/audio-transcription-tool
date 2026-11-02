@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { UploadCloud, XCircle } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { APP_COPY, type AppLocale } from "@/lib/app-copy";
 
 export type AcceptedAudioExtension = "mp3" | "wav" | "m4a" | "mp4" | "ogg" | "flac" | "aac" | "webm" | "opus";
@@ -40,7 +40,6 @@ export function UploadDropzone({
   onFileSelected,
 }: UploadDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const disabledReasonId = useId();
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -86,8 +85,6 @@ export function UploadDropzone({
         role="button"
         tabIndex={0}
         aria-disabled={disabled}
-        aria-label={copy.uploadLabel}
-        aria-describedby={disabled && disabledReason ? disabledReasonId : undefined}
         onClick={openFilePicker}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -149,7 +146,7 @@ export function UploadDropzone({
 
         <p className="max-w-xl text-[11px] leading-4 text-neutral-400">{copy.acceptedFormats}</p>
         {disabled && disabledReason ? (
-          <p id={disabledReasonId} className="text-[11px] font-medium text-amber-200/80">
+          <p className="text-[11px] font-medium text-amber-200/80">
             {disabledReason}
           </p>
         ) : null}
